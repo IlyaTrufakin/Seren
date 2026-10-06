@@ -7,6 +7,9 @@ from datetime import datetime
 
 from src.config import AppConfig
 from src.modbus_worker import ModbusWorker
+from src.threat_models import ThreatSystemConfig, ThreatStatus
+from src.threat_evaluator import ThreatEvaluator
+from src.threat_config_dialog import ThreatConfigDialog
 from src.ui_theme import (
     setup_ttk_styles, LedIndicator, WordBitsWidget,
     BG_MAIN, BG_CARD, BG_CARD_LIGHT, BG_INPUT, BORDER_COLOR,
@@ -28,6 +31,13 @@ class ModbusApp(tk.Tk):
         self.event_queue = queue.Queue()
         self.worker = ModbusWorker(self.config, self.event_queue)
 
+        # Анализатор угроз (AlarmMap + Telegram)
+        self.threat_config = ThreatSystemConfig.load()
+        self.threat_evaluator = ThreatEvaluator(
+            self.threat_config,
+            on_status_change=self._on_threat_status_changed
+        )
+
         # Переменные интерфейса
         self._init_variables()
 
@@ -36,6 +46,9 @@ class ModbusApp(tk.Tk):
 
         # Построение интерфейса
         self._build_ui()
+
+        # Запуск анализатора угроз
+        self.threat_evaluator.start()
 
         # Привязка закрытия окна
         self.protocol("WM_DELETE_WINDOW", self._on_close)
@@ -51,6 +64,15 @@ class ModbusApp(tk.Tk):
         self.var_poll_ms = tk.StringVar(value=str(self.config.poll_interval_ms))
         self.var_timeout = tk.StringVar(value=str(self.config.timeout))
         self.var_auto_reconnect = tk.BooleanVar(value=self.config.auto_reconnect)
+
+        # Угрозы
+        self.var_threat_title = tk.StringVar(value="БЕЗОПАСНО")
+        self.var_threat_desc = tk.StringVar(value=f"Сектор: {self.threat_config.district.name} — обстановка спокойная")
+        self.var_threat_details = tk.StringVar(value="Источники: AlarmMap и Telegram подключены. Мониторинг активен.")
+        self.var_threat_word = tk.StringVar(value="%MW0: 0x0001 (Бит 0)")
+        self.var_badge_rocket = tk.StringVar(value="")
+        self.var_badge_kab = tk.StringVar(value="")
+        self.var_badge_drone = tk.StringVar(value="")
 
         # Регистры
         self.var_write_addr = tk.StringVar(value=str(self.config.write_reg_address))
@@ -71,10 +93,12 @@ class ModbusApp(tk.Tk):
         self.var_read_bin = tk.StringVar(value="0000 0000 0000 0000")
         self.var_read_time = tk.StringVar(value="Ожидание данных...")
 
-        # Статистика
+        # Статистика и обратная связь ПЛК
         self.var_status_text = tk.StringVar(value="Отключено")
         self.var_stats_text = tk.StringVar(value="Запросов: 0 | Ошибок: 0 | Задержка: 0.0 мс")
         self.var_autoscroll = tk.BooleanVar(value=True)
+        self.var_plc_feedback_text = tk.StringVar(value="ПЛК: ожидание связи")
+        self._last_plc_reset_bit = False
 
         self._updating_write_inputs = False
         self._last_sent_val = -1
@@ -87,10 +111,13 @@ class ModbusApp(tk.Tk):
         # 1. Верхняя панель (Header)
         self._build_header(main_frame)
 
-        # 2. Сетевая панель (Network Settings)
+        # 2. Мониторинг угроз (г. Харьков и сектор объекта)
+        self._build_threat_panel(main_frame)
+
+        # 3. Сетевая панель (Network Settings)
         self._build_network_panel(main_frame)
 
-        # 3. Основная рабочая зона (2 колонки: Запись %MW и Чтение %MW)
+        # 4. Основная рабочая зона (2 колонки: Запись %MW и Чтение %MW)
         work_frame = tk.Frame(main_frame, bg=BG_MAIN)
         work_frame.pack(fill="x", pady=(10, 8))
         work_frame.columnconfigure(0, weight=1)
@@ -99,7 +126,7 @@ class ModbusApp(tk.Tk):
         self._build_write_card(work_frame)
         self._build_read_card(work_frame)
 
-        # 4. Журнал событий (Log)
+        # 5. Журнал событий (Log)
         self._build_log_panel(main_frame)
 
     def _build_header(self, parent):
@@ -144,6 +171,156 @@ class ModbusApp(tk.Tk):
         )
         status_lbl.pack(side="left")
         self.lbl_status = status_lbl
+
+    def _build_threat_panel(self, parent):
+        card = tk.LabelFrame(
+            parent,
+            text="  МОНИТОРИНГ УГРОЗ: г. ХАРЬКОВ (AlarmMap API + Telegram)  ",
+            bg=BG_CARD,
+            fg="#f59e0b",
+            font=FONT_SUBTITLE,
+            bd=1,
+            relief="solid",
+            padx=10,
+            pady=8
+        )
+        card.pack(fill="x", pady=(0, 6))
+
+        top_row = tk.Frame(card, bg=BG_CARD)
+        top_row.pack(fill="x")
+
+        # LED статуса угрозы
+        self.led_threat = LedIndicator(top_row, size=22)
+        self.led_threat.pack(side="left", padx=(0, 8))
+        self.led_threat.set_state("connected")
+
+        # Плашка уровня угрозы
+        self.lbl_threat_badge = tk.Label(
+            top_row,
+            textvariable=self.var_threat_title,
+            font=FONT_BOLD,
+            bg="#065f46",
+            fg="#34d399",
+            padx=10,
+            pady=3,
+            bd=1,
+            relief="solid"
+        )
+        self.lbl_threat_badge.pack(side="left", padx=(0, 10))
+
+        # Описание сектора
+        lbl_sec = tk.Label(
+            top_row,
+            textvariable=self.var_threat_desc,
+            font=FONT_REGULAR,
+            bg=BG_CARD,
+            fg=TEXT_MAIN
+        )
+        lbl_sec.pack(side="left")
+
+        # Кнопка конфигуратора
+        btn_cfg = ttk.Button(
+            top_row,
+            text="⚙️ Конфигуратор правил",
+            style="Outline.TButton",
+            command=self._open_threat_config
+        )
+        btn_cfg.pack(side="right")
+
+        # Слово для ПЛК
+        self.lbl_threat_plc_word = tk.Label(
+            top_row,
+            textvariable=self.var_threat_word,
+            font=FONT_MONO,
+            bg=BG_CARD,
+            fg=TEXT_ACCENT
+        )
+        self.lbl_threat_plc_word.pack(side="right", padx=(0, 14))
+
+        # Нижняя строка: последнее событие и бейджи
+        bot_row = tk.Frame(card, bg=BG_CARD)
+        bot_row.pack(fill="x", pady=(6, 0))
+
+        self.badge_box = tk.Frame(bot_row, bg=BG_CARD)
+        self.badge_box.pack(side="right")
+
+        self.lbl_badge_rocket = tk.Label(self.badge_box, textvariable=self.var_badge_rocket, font=FONT_BOLD, bg="#7f1d1d", fg="#fca5a5", padx=6, pady=1)
+        self.lbl_badge_kab = tk.Label(self.badge_box, textvariable=self.var_badge_kab, font=FONT_BOLD, bg="#78350f", fg="#fcd34d", padx=6, pady=1)
+        self.lbl_badge_drone = tk.Label(self.badge_box, textvariable=self.var_badge_drone, font=FONT_BOLD, bg="#312e81", fg="#a5b4fc", padx=6, pady=1)
+
+        self.lbl_threat_details = tk.Label(
+            bot_row,
+            textvariable=self.var_threat_details,
+            font=FONT_REGULAR,
+            bg=BG_CARD,
+            fg=TEXT_MUTED,
+            anchor="w"
+        )
+        self.lbl_threat_details.pack(side="left", fill="x", expand=True)
+
+    def _open_threat_config(self):
+        ThreatConfigDialog(self, self.threat_config, on_save_callback=self._on_threat_config_saved)
+
+    def _on_threat_config_saved(self, new_cfg: ThreatSystemConfig):
+        self.threat_config = new_cfg
+        self.threat_evaluator.stop()
+        self.threat_evaluator = ThreatEvaluator(self.threat_config, on_status_change=self._on_threat_status_changed)
+        self.threat_evaluator.start()
+        self._log("Конфигуратор угроз: параметры обновлены и перезапущены.", tag="info")
+
+    def _on_threat_status_changed(self, st: ThreatStatus):
+        self.after(0, self._apply_threat_status_ui, st)
+
+    def _apply_threat_status_ui(self, st: ThreatStatus):
+        lvl = st.level_code
+        self.var_threat_title.set(f" {st.level_title} ")
+        self.var_threat_desc.set(f"Сектор: {self.threat_config.district.name} — {st.description}")
+        self.var_threat_word.set(f"%MW0: 0x{st.modbus_word:04X} (Бит {lvl if lvl <= 5 else 0})")
+
+        if lvl == 0:
+            self.led_threat.set_state("connected")
+            self.lbl_threat_badge.config(bg="#065f46", fg="#34d399")
+        elif lvl == 1:
+            self.led_threat.set_state("connecting")
+            self.lbl_threat_badge.config(bg="#78350f", fg="#fde047")
+        elif lvl in (2, 3):
+            self.led_threat.set_state("connecting")
+            self.lbl_threat_badge.config(bg="#9a3412", fg="#fdba74")
+        else: # 4, 5
+            self.led_threat.set_state("error")
+            self.lbl_threat_badge.config(bg="#7f1d1d", fg="#fca5a5")
+
+        # Бейджи типов
+        if st.has_rocket:
+            self.var_badge_rocket.set("🚀 РАКЕТА")
+            self.lbl_badge_rocket.pack(side="right", padx=2)
+        else:
+            self.lbl_badge_rocket.pack_forget()
+
+        if st.has_kab:
+            self.var_badge_kab.set("💣 КАБ")
+            self.lbl_badge_kab.pack(side="right", padx=2)
+        else:
+            self.lbl_badge_kab.pack_forget()
+
+        if st.has_drone:
+            self.var_badge_drone.set("🛸 ДРОН")
+            self.lbl_badge_drone.pack(side="right", padx=2)
+        else:
+            self.lbl_badge_drone.pack_forget()
+
+        if st.last_event_text:
+            t_str = time.strftime("%H:%M:%S", time.localtime(st.last_event_time))
+            self.var_threat_details.set(f"[{t_str}] {st.last_event_source}: {st.last_event_text[:95]}")
+        else:
+            self.var_threat_details.set("Источники: AlarmMap и Telegram активны. Мониторинг 24/7.")
+
+        # Автоматическая передача слова тревоги в ПЛК
+        if self.threat_config.auto_transfer_to_plc:
+            target_val = st.modbus_word & 0xFFFF
+            self._update_write_views(target_val, source="threat_engine")
+            if self.worker.is_connected():
+                self.worker.queue_write(target_val, address=self.config.write_reg_address)
 
     def _build_network_panel(self, parent):
         card = tk.LabelFrame(
@@ -344,6 +521,18 @@ class ModbusApp(tk.Tk):
         tk.Label(card, text="Битовое состояние (индикаторы бит 15..0):", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MUTED).pack(anchor="w", pady=(4, 2))
         self.read_bits_widget = WordBitsWidget(card, editable=False)
         self.read_bits_widget.pack(fill="x", pady=(0, 4))
+
+        # Строка 4: Статус обратной связи от ПЛК (кнопка сброса и работа)
+        fb_frame = tk.Frame(card, bg=BG_CARD)
+        fb_frame.pack(fill="x", pady=(2, 0))
+        self.lbl_plc_feedback = tk.Label(
+            fb_frame,
+            textvariable=self.var_plc_feedback_text,
+            font=FONT_BOLD,
+            bg=BG_CARD,
+            fg="#38bdf8"
+        )
+        self.lbl_plc_feedback.pack(side="left")
 
     def _build_log_panel(self, parent):
         log_frame = tk.LabelFrame(
@@ -592,17 +781,42 @@ class ModbusApp(tk.Tk):
                     elif state == "connecting":
                         self.lbl_status.config(text="Подключение...", fg=COLOR_WARNING)
                         self.var_status_text.set("Подключение...")
+                        self.var_read_time.set("Связь прервана, ожидание ответа ПЛК...")
                         self._log(msg, tag="warn")
                     else:
                         self.lbl_status.config(text="Отключено", fg=COLOR_DANGER)
                         self.var_status_text.set("Отключено")
+                        self.var_read_time.set("Нет связи с ПЛК")
                         self._log(msg, tag="error")
+                        self.btn_connect.config(text="Подключить", style="Success.TButton")
+                        self._set_inputs_state(True)
 
                 elif ev_type == "read_ok":
                     val = data.get("value", 0)
                     addr = data.get("address", 1)
                     lat = data.get("latency_ms", 0)
                     now_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+
+                    # Проверка битов обратной связи от ПЛК (%MW1)
+                    pf = self.threat_config.plc_feedback
+                    bit_reset = pf.bit_alarm_reset
+                    bit_run = pf.bit_plc_running
+                    is_reset_high = bool((val >> bit_reset) & 1)
+                    is_run_high = bool((val >> bit_run) & 1)
+
+                    # Фронт кнопки сброса тревоги от ПЛК (0 -> 1)
+                    if is_reset_high and not self._last_plc_reset_bit:
+                        self._log(f"[ПЛК] Нажата кнопка сброса тревоги (%MW{addr}, Бит {bit_reset}). Сброс тревоги и перезапуск анализа.", tag="warn")
+                        self.threat_evaluator.reset_threat_state(source=f"Кнопка сброса ПЛК (%MW{addr}: Бит {bit_reset})")
+                    self._last_plc_reset_bit = is_reset_high
+
+                    # Обновление строки статуса ПЛК
+                    run_txt = "В РАБОТЕ" if is_run_high else "ОСТАНОВЛЕН"
+                    run_color = COLOR_SUCCESS if is_run_high else COLOR_WARNING
+                    self.lbl_plc_feedback.config(fg=run_color)
+                    self.var_plc_feedback_text.set(
+                        f"ПЛК: {run_txt} (Бит {bit_run}) | Кнопка сброса: {'[НАЖАТА]' if is_reset_high else 'ОТЖАТА'} (Бит {bit_reset})"
+                    )
 
                     # Обновляем табло
                     self.var_read_dec_u.set(str(val))
@@ -655,5 +869,9 @@ class ModbusApp(tk.Tk):
         self.txt_log.delete("1.0", "end")
 
     def _on_close(self):
+        try:
+            self.threat_evaluator.stop()
+        except Exception:
+            pass
         self.worker.stop()
         self.destroy()

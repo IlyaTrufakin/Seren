@@ -6,8 +6,8 @@
     "poll_interval_ms": 200,
     "auto_reconnect": true,
     "write_reg_address": 0,
-    "read_reg_address": 1,
+    "read_reg_address": 2,
     "cyclic_write": false,
     "write_on_change": true,
-    "last_write_value": 0
+    "last_write_value": 1
 }

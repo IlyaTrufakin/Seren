@@ -1,0 +1,92 @@
+{
+  "alarmmap_enabled": true,
+  "alarmmap_key_file": "API/alarmmap.online.txt",
+  "alarmmap_poll_interval_s": 10,
+  "telegram_enabled": true,
+  "telegram_mode": "web",
+  "telegram_api_id": null,
+  "telegram_api_hash": null,
+  "telegram_channels": [
+    "monitor1654",
+    "radar_kharkov"
+  ],
+  "district": {
+    "name": "Основянский / Слободской / Немышля",
+    "ttl_seconds": 600,
+    "district_keywords": [
+      "основян",
+      "основ'ян",
+      "основа",
+      "основи",
+      "слободск",
+      "слобідськ",
+      "немышл",
+      "немишл",
+      "турбоатом",
+      "малышев",
+      "малишев",
+      "новые дома",
+      "нові дома",
+      "новых домов",
+      "нових домів",
+      "бульвар юрьева",
+      "юрьева",
+      "дворец спорта",
+      "палац спорту",
+      "одесск",
+      "одеськ",
+      "класс на одесской",
+      "гагарин",
+      "аэрокосмическ",
+      "аерокосмічн",
+      "аэропорт",
+      "аеропорт",
+      "основа/аэропорт",
+      "безлюдовк",
+      "безлюдівк"
+    ],
+    "critical_alert_keywords": [
+      "в укриття",
+      "в укрытие",
+      "всі в укриття",
+      "все в укрытие",
+      "негайно в укриття",
+      "срочно в укрытие",
+      "терміново в укриття",
+      "перебувайте в укриттях",
+      "находитесь в укрытиях",
+      "в безпечні місця",
+      "в безопасные места"
+    ],
+    "city_keywords": [
+      "харьков",
+      "харків",
+      "городу",
+      "місту",
+      "центр",
+      "шевро",
+      "салтов",
+      "салтів",
+      "алексеев",
+      "олексіїв"
+    ]
+  },
+  "bit_mapping": {
+    "bit_safe": 0,
+    "bit_threat_minimal": 1,
+    "bit_threat_city_potential": 2,
+    "bit_threat_district_potential": 3,
+    "bit_threat_city_critical": 4,
+    "bit_threat_district_critical": 5,
+    "bit_type_rocket": 6,
+    "bit_type_kab": 7,
+    "bit_type_drone": 8,
+    "bit_no_link": 9,
+    "bit_heartbeat": 15
+  },
+  "plc_feedback": {
+    "bit_plc_running": 15,
+    "bit_alarm_reset": 1
+  },
+  "auto_transfer_to_plc": true
+}

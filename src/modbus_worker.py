@@ -66,27 +66,39 @@ class ModbusWorker:
         client = None
         reconnect_delay = 1.0
 
-        self._post_event("status", {"state": "connecting", "message": f"Подключение к {self.config.host}:{self.config.port}..."})
+        consecutive_errors = 0
+        max_consecutive_errors = 2
 
         while not self._stop_event.is_set():
             # Попытка подключения
+            self._connected = False
+            self._post_event("status", {
+                "state": "connecting",
+                "message": f"Подключение к {self.config.host}:{self.config.port}..."
+            })
+
+            client = None
             try:
                 client = ModbusTcpClient(
                     host=self.config.host,
                     port=self.config.port,
-                    timeout=self.config.timeout
+                    timeout=max(1.0, float(self.config.timeout))
                 )
                 connected = client.connect()
             except Exception as e:
                 connected = False
-                err_msg = f"Ошибка сокета: {e}"
+                err_msg = f"Исключение при подключении: {e}"
 
             if not connected:
-                self._connected = False
+                if client is not None:
+                    try:
+                        client.close()
+                    except Exception:
+                        pass
                 self.failed_requests += 1
                 self._post_event("status", {
-                    "state": "error",
-                    "message": f"Не удалось подключиться к {self.config.host}:{self.config.port}"
+                    "state": "connecting",
+                    "message": f"ПЛК недоступен ({self.config.host}:{self.config.port}). Повтор через {reconnect_delay:.0f} с..."
                 })
                 
                 if not self.config.auto_reconnect or self._stop_event.is_set():
@@ -101,6 +113,7 @@ class ModbusWorker:
 
             # Успешно подключено
             self._connected = True
+            consecutive_errors = 0
             self._post_event("status", {
                 "state": "connected",
                 "message": f"Связь установлена с {self.config.host}:{self.config.port}"
@@ -109,7 +122,7 @@ class ModbusWorker:
             # Рабочий цикл обмена
             while not self._stop_event.is_set():
                 cycle_start = time.perf_counter()
-                cycle_success = True
+                cycle_has_critical_error = False
 
                 # 1. Запись по очереди (ручная отправка или по изменению)
                 pending_writes = []
@@ -132,11 +145,14 @@ class ModbusWorker:
                         dt = (time.perf_counter() - t0) * 1000
                         if res is None or res.isError():
                             self.failed_requests += 1
-                            cycle_success = False
+                            consecutive_errors += 1
                             err = str(res) if res else "Таймаут записи"
                             self._post_event("error", {"op": "write", "msg": f"Ошибка записи %MW{w_addr}: {err}"})
+                            if "ModbusIOException" in str(type(res)) or "Connection" in str(err):
+                                cycle_has_critical_error = True
                         else:
                             self.successful_requests += 1
+                            consecutive_errors = 0
                             self.last_latency_ms = dt
                             self._post_event("write_ok", {
                                 "address": w_addr,
@@ -145,7 +161,8 @@ class ModbusWorker:
                             })
                     except Exception as e:
                         self.failed_requests += 1
-                        cycle_success = False
+                        consecutive_errors += 1
+                        cycle_has_critical_error = True
                         self._post_event("error", {"op": "write", "msg": f"Исключение при записи %MW{w_addr}: {e}"})
 
                 # Если включена циклическая запись и очереди не было, пишем текущее значение
@@ -161,11 +178,14 @@ class ModbusWorker:
                         dt = (time.perf_counter() - t0) * 1000
                         if res is None or res.isError():
                             self.failed_requests += 1
-                            cycle_success = False
+                            consecutive_errors += 1
                             err = str(res) if res else "Таймаут циклической записи"
-                            self._post_event("error", {"op": "write", "msg": f"Ошибка циклический записи %MW{self.config.write_reg_address}: {err}"})
+                            self._post_event("error", {"op": "write", "msg": f"Ошибка циклической записи %MW{self.config.write_reg_address}: {err}"})
+                            if "ModbusIOException" in str(type(res)) or "Connection" in str(err):
+                                cycle_has_critical_error = True
                         else:
                             self.successful_requests += 1
+                            consecutive_errors = 0
                             self.last_latency_ms = dt
                             self._post_event("write_ok", {
                                 "address": self.config.write_reg_address,
@@ -174,8 +194,9 @@ class ModbusWorker:
                             })
                     except Exception as e:
                         self.failed_requests += 1
-                        cycle_success = False
-                        self._post_event("error", {"op": "write", "msg": f"Исключение записи: {e}"})
+                        consecutive_errors += 1
+                        cycle_has_critical_error = True
+                        self._post_event("error", {"op": "write", "msg": f"Исключение циклической записи: {e}"})
 
                 # 2. Чтение регистра (%MW1 или настроенного)
                 t0 = time.perf_counter()
@@ -189,11 +210,14 @@ class ModbusWorker:
                     dt = (time.perf_counter() - t0) * 1000
                     if res is None or res.isError():
                         self.failed_requests += 1
-                        cycle_success = False
+                        consecutive_errors += 1
                         err = str(res) if res else "Таймаут ответа ПЛК"
                         self._post_event("error", {"op": "read", "msg": f"Ошибка чтения %MW{self.config.read_reg_address}: {err}"})
+                        if "ModbusIOException" in str(type(res)) or "Connection" in str(err):
+                            cycle_has_critical_error = True
                     else:
                         self.successful_requests += 1
+                        consecutive_errors = 0
                         self.last_latency_ms = dt
                         val = res.registers[0]
                         self._post_event("read_ok", {
@@ -203,7 +227,8 @@ class ModbusWorker:
                         })
                 except Exception as e:
                     self.failed_requests += 1
-                    cycle_success = False
+                    consecutive_errors += 1
+                    cycle_has_critical_error = True
                     self._post_event("error", {"op": "read", "msg": f"Исключение при чтении: {e}"})
 
                 # Отправка сводки статистики
@@ -214,9 +239,13 @@ class ModbusWorker:
                     "latency_ms": self.last_latency_ms
                 })
 
-                # Если были ошибки подряд и сокет упал
-                if not cycle_success and not client.connected:
-                    self._post_event("status", {"state": "disconnected", "message": "Соединение разорвано. Переподключение..."})
+                # Проверка потери связи: сетевое исключение или превышение счетчика ошибок
+                if cycle_has_critical_error or consecutive_errors >= max_consecutive_errors:
+                    self._connected = False
+                    self._post_event("status", {
+                        "state": "connecting",
+                        "message": "Потеря связи с ПЛК. Переподключение..."
+                    })
                     break
 
                 # Выдерживаем интервал опроса
@@ -231,11 +260,12 @@ class ModbusWorker:
                         break
                     time.sleep(dt_step)
 
-            # Закрываем клиент при выходе из цикла
-            try:
-                client.close()
-            except Exception:
-                pass
+            # Гарантированно закрываем клиент при разрыве или выходе из цикла
+            if client is not None:
+                try:
+                    client.close()
+                except Exception:
+                    pass
             self._connected = False
 
         self._connected = False

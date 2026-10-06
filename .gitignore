@@ -28,3 +28,12 @@ Desktop.ini
 
 # Temporary logs
 *.log
+
+# Sensitive API keys & credentials
+API/
+*.key
+.env
+*.session
+*.session-journal
+
+

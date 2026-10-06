@@ -45,6 +45,21 @@ class ThreatConfigDialog(tk.Toplevel):
         notebook.add(tab_plc, text="  ⚙️ Назначение бит ПЛК (%MW0)  ")
         self._build_plc_tab(tab_plc)
 
+        # 4. Вкладка "Расписание тишины"
+        tab_sched = tk.Frame(notebook, bg=BG_MAIN, padx=10, pady=10)
+        notebook.add(tab_sched, text="  ⏰ Расписание тишины  ")
+        self._build_schedule_tab(tab_sched)
+
+        # 5. Вкладка "Словарь БпЛА"
+        tab_drones = tk.Frame(notebook, bg=BG_MAIN, padx=10, pady=10)
+        notebook.add(tab_drones, text="  🛸 Словарь БпЛА  ")
+        self._build_drones_tab(tab_drones)
+
+        # 6. Вкладка "Звуковые профили ПЛК"
+        tab_sounds = tk.Frame(notebook, bg=BG_MAIN, padx=10, pady=10)
+        notebook.add(tab_sounds, text="  🔊 Звуки (%MW2..%MW6)  ")
+        self._build_sounds_tab(tab_sounds)
+
         # Нижняя панель с кнопками
         btn_frame = tk.Frame(self, bg=BG_MAIN, padx=12, pady=10)
         btn_frame.pack(fill="x", side="bottom")
@@ -167,6 +182,7 @@ class ThreatConfigDialog(tk.Toplevel):
             ("Флаг типа: Управляемые авиабомбы (КАБ):", "bit_type_kab", bm.bit_type_kab),
             ("Флаг типа: Ударные БпЛА (Шахеды / дроны):", "bit_type_drone", bm.bit_type_drone),
             ("Нет связи с источниками данных (AlarmMap/TG):", "bit_no_link", bm.bit_no_link),
+            ("Режим тишины по расписанию (тревоги заглушены):", "bit_muted_by_schedule", bm.bit_muted_by_schedule),
             ("Heartbeat (мигающий бит жизни программы):", "bit_heartbeat", bm.bit_heartbeat),
         ]
 
@@ -188,15 +204,191 @@ class ThreatConfigDialog(tk.Toplevel):
         row_fb = tk.Frame(card_fb, bg=BG_CARD)
         row_fb.pack(fill="x")
 
-        tk.Label(row_fb, text="Бит «ПЛК работает» (Run/Heartbeat):", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_REGULAR).pack(side="left", padx=(0, 4))
+        tk.Label(row_fb, text="Бит «ПЛК работает» (Run):", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_REGULAR).pack(side="left", padx=(0, 4))
         self.entry_fb_run = ttk.Entry(row_fb, width=5)
         self.entry_fb_run.insert(0, str(pf.bit_plc_running))
-        self.entry_fb_run.pack(side="left", padx=(0, 20))
+        self.entry_fb_run.pack(side="left", padx=(0, 12))
 
-        tk.Label(row_fb, text="Бит «Кнопка сброса тревоги» (Reset):", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_REGULAR).pack(side="left", padx=(0, 4))
+        tk.Label(row_fb, text="Бит «Сброс тревоги» (Reset):", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_REGULAR).pack(side="left", padx=(0, 4))
         self.entry_fb_reset = ttk.Entry(row_fb, width=5)
         self.entry_fb_reset.insert(0, str(pf.bit_alarm_reset))
-        self.entry_fb_reset.pack(side="left")
+        self.entry_fb_reset.pack(side="left", padx=(0, 12))
+
+        tk.Label(row_fb, text="Бит «Тумблер анализа угроз» (Вкл/Выкл):", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_REGULAR).pack(side="left", padx=(0, 4))
+        self.entry_fb_switch = ttk.Entry(row_fb, width=5)
+        self.entry_fb_switch.insert(0, str(pf.bit_analysis_switch))
+        self.entry_fb_switch.pack(side="left")
+
+    def _build_schedule_tab(self, parent):
+        card = tk.LabelFrame(
+            parent,
+            text="  Расписание контроля тревог (Тихий час / Блокировка выдачи на ПЛК)  ",
+            bg=BG_CARD,
+            fg=TEXT_ACCENT,
+            font=FONT_SUBTITLE,
+            padx=12,
+            pady=10
+        )
+        card.pack(fill="both", expand=True)
+
+        self.var_sched_enabled = tk.BooleanVar(value=self.config.schedule.enabled)
+        chk_sched = ttk.Checkbutton(
+            card,
+            text="Включить расписание контроля тревог (подавление сигналов на ПЛК)",
+            variable=self.var_sched_enabled
+        )
+        chk_sched.pack(anchor="w", pady=(0, 10))
+
+        info_lbl = tk.Label(
+            card,
+            text="При включении расписания: в указанный интервал времени (например, ночью)\n"
+                 "анализ в программе продолжает непрерывно вестись (вы будете видеть статус в окне),\n"
+                 "но на контроллер НЕ выдаются сигналы тревог (выдается статус Безопасно / Бит 0),\n"
+                 "а на ПЛК передается выделенный бит режима тишины (по умолчанию Бит 10).",
+            font=FONT_REGULAR,
+            bg=BG_CARD,
+            fg=TEXT_MUTED,
+            justify="left"
+        )
+        info_lbl.pack(anchor="w", pady=(0, 14))
+
+        row_time = tk.Frame(card, bg=BG_CARD)
+        row_time.pack(fill="x", pady=4)
+
+        tk.Label(row_time, text="Время начала тишины (ЧЧ:ММ):", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=(0, 6))
+        self.entry_sched_start = ttk.Entry(row_time, width=8, font=FONT_MONO)
+        self.entry_sched_start.insert(0, self.config.schedule.start_time)
+        self.entry_sched_start.pack(side="left", padx=(0, 20))
+
+        tk.Label(row_time, text="Время окончания тишины (ЧЧ:ММ):", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=(0, 6))
+        self.entry_sched_end = ttk.Entry(row_time, width=8, font=FONT_MONO)
+        self.entry_sched_end.insert(0, self.config.schedule.end_time)
+        self.entry_sched_end.pack(side="left")
+
+    def _build_drones_tab(self, parent):
+        card = tk.LabelFrame(
+            parent,
+            text="  Классификатор названий беспилотников (3 группы опасности)  ",
+            bg=BG_CARD,
+            fg=TEXT_ACCENT,
+            font=FONT_SUBTITLE,
+            padx=10,
+            pady=8
+        )
+        card.pack(fill="both", expand=True)
+
+        tk.Label(
+            card,
+            text="При фиксации нескольких типов БпЛА одновременно в одном сообщении преобладает наиболее опасная группа (Группа 1 > Группа 2 > Группа 3).\n"
+                 "Слова вносите через запятую (например: шахед, герань, гербера):",
+            font=FONT_REGULAR,
+            bg=BG_CARD,
+            fg=TEXT_MUTED,
+            justify="left"
+        ).pack(anchor="w", pady=(0, 6))
+
+        # Группа 1: Тяжелые ударные (Критическая)
+        tk.Label(card, text="🔴 Группа 1: Высокая опасность (Тяжелые ударные камикадзе с мощной БЧ):", bg=BG_CARD, fg="#f87171", font=FONT_BOLD).pack(anchor="w", pady=(2, 2))
+        self.txt_drone_g1 = tk.Text(card, height=3, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g1.pack(fill="x", pady=(0, 6))
+        self.txt_drone_g1.insert("1.0", ", ".join(self.config.drone_dict.group1_keywords))
+
+        # Группа 2: Тактические / Разведчики (Средняя)
+        tk.Label(card, text="🟡 Группа 2: Средняя опасность (Тактические ударные, FPV дальнего действия, разведчики):", bg=BG_CARD, fg="#fcd34d", font=FONT_BOLD).pack(anchor="w", pady=(2, 2))
+        self.txt_drone_g2 = tk.Text(card, height=3, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g2.pack(fill="x", pady=(0, 6))
+        self.txt_drone_g2.insert("1.0", ", ".join(self.config.drone_dict.group2_keywords))
+
+        # Группа 3: Ложные цели / Имитаторы (Низкая)
+        tk.Label(card, text="🟢 Группа 3: Низкая опасность (Ложные цели, имитаторы, приманки без БЧ):", bg=BG_CARD, fg="#34d399", font=FONT_BOLD).pack(anchor="w", pady=(2, 2))
+        self.txt_drone_g3 = tk.Text(card, height=3, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g3.pack(fill="x", pady=(0, 2))
+        self.txt_drone_g3.insert("1.0", ", ".join(self.config.drone_dict.group3_keywords))
+
+    def _build_sounds_tab(self, parent):
+        card = tk.LabelFrame(
+            parent,
+            text="  Динамические профили оповещения звуков (%MW2..%MW6)  ",
+            bg=BG_CARD,
+            fg=TEXT_ACCENT,
+            font=FONT_SUBTITLE,
+            padx=10,
+            pady=8
+        )
+        card.pack(fill="both", expand=True)
+
+        tk.Label(
+            card,
+            text="ПЛК принимает параметры активного звука: %MW2 (Код профиля), %MW3 (Кол-во гудков),\n"
+                 "%MW4 (Длительность гудка, мс), %MW5 (Пауза между гудками, мс), %MW6 (Интервал между сериями, мс).\n"
+                 "При блокировке тумблером с ПЛК или в тихий час на ПЛК передаются все нули.",
+            font=FONT_REGULAR,
+            bg=BG_CARD,
+            fg=TEXT_MUTED,
+            justify="left"
+        ).pack(anchor="w", pady=(0, 6))
+
+        # Заголовки таблицы
+        headers_frame = tk.Frame(card, bg=BG_CARD)
+        headers_frame.pack(fill="x", pady=(2, 4))
+        tk.Label(headers_frame, text="Событие оповещения", width=34, anchor="w", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left")
+        tk.Label(headers_frame, text="Код", width=5, bg=BG_CARD, fg=TEXT_MUTED, font=FONT_BOLD).pack(side="left", padx=2)
+        tk.Label(headers_frame, text="Гудков (шт)", width=11, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
+        tk.Label(headers_frame, text="Длительность (мс)", width=16, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
+        tk.Label(headers_frame, text="Пауза в серии (мс)", width=16, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
+        tk.Label(headers_frame, text="Пауза серии (мс)", width=16, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
+
+        self.sound_profile_entries = {}
+        sp = self.config.sound_profiles
+        profiles_list = [
+            ("safe_heartbeat", "0: Норма (Звуковой Heartbeat)", sp.safe_heartbeat),
+            ("rocket_critical", "1: Ракета: Критическая (Город)", sp.rocket_critical),
+            ("rocket_potential", "2: Ракета: Потенциальная (Город)", sp.rocket_potential),
+            ("kab_district_critical", "3: КАБ: Критическая (Район)", sp.kab_district_critical),
+            ("kab_city_critical", "4: КАБ: Критическая (Город)", sp.kab_city_critical),
+            ("kab_potential", "5: КАБ: Потенциальная", sp.kab_potential),
+            ("drone_g1_district_critical", "6: Дрон Гр.1: Критическая (Район)", sp.drone_g1_district_critical),
+            ("drone_g1_city", "7: Дрон Гр.1: Опасность (Город)", sp.drone_g1_city),
+            ("drone_g2_tactical", "8: Дрон Гр.2: Тактические / FPV", sp.drone_g2_tactical),
+            ("drone_g3_decoy", "9: Дрон Гр.3: Ложные цели / Мин.", sp.drone_g3_decoy),
+        ]
+
+        # Контейнер для строк со скроллом если нужно
+        container = tk.Frame(card, bg=BG_CARD)
+        container.pack(fill="both", expand=True)
+
+        for prof_key, prof_label, p_obj in profiles_list:
+            row = tk.Frame(container, bg=BG_CARD)
+            row.pack(fill="x", pady=1)
+
+            lbl_color = TEXT_MAIN
+            if "Критическая (Район)" in prof_label:
+                lbl_color = "#f87171"
+            elif "Критическая" in prof_label:
+                lbl_color = "#fb923c"
+            elif "Heartbeat" in prof_label:
+                lbl_color = "#34d399"
+
+            tk.Label(row, text=prof_label, width=34, anchor="w", bg=BG_CARD, fg=lbl_color, font=FONT_REGULAR).pack(side="left")
+            tk.Label(row, text=str(p_obj.code), width=5, bg=BG_CARD, fg=TEXT_MUTED, font=FONT_MONO).pack(side="left", padx=2)
+
+            e_cnt = ttk.Entry(row, width=10, font=FONT_MONO)
+            e_cnt.insert(0, str(p_obj.beep_count))
+            e_cnt.pack(side="left", padx=3)
+
+            e_dur = ttk.Entry(row, width=15, font=FONT_MONO)
+            e_dur.insert(0, str(p_obj.beep_duration_ms))
+            e_dur.pack(side="left", padx=3)
+
+            e_pau = ttk.Entry(row, width=15, font=FONT_MONO)
+            e_pau.insert(0, str(p_obj.pause_between_ms))
+            e_pau.pack(side="left", padx=3)
+
+            e_int = ttk.Entry(row, width=15, font=FONT_MONO)
+            e_int.insert(0, str(p_obj.interval_series_ms))
+            e_int.pack(side="left", padx=3)
+
+            self.sound_profile_entries[prof_key] = (e_cnt, e_dur, e_pau, e_int)
 
     def _save_and_close(self):
         try:
@@ -238,6 +430,29 @@ class ThreatConfigDialog(tk.Toplevel):
             # Парсинг бит обратной связи от ПЛК
             self.config.plc_feedback.bit_plc_running = int(self.entry_fb_run.get().strip())
             self.config.plc_feedback.bit_alarm_reset = int(self.entry_fb_reset.get().strip())
+            self.config.plc_feedback.bit_analysis_switch = int(self.entry_fb_switch.get().strip())
+
+            # Парсинг расписания тишины
+            self.config.schedule.enabled = self.var_sched_enabled.get()
+            self.config.schedule.start_time = self.entry_sched_start.get().strip()
+            self.config.schedule.end_time = self.entry_sched_end.get().strip()
+
+            # Парсинг словаря беспилотников
+            g1_kws = [k.strip().lower() for k in self.txt_drone_g1.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
+            g2_kws = [k.strip().lower() for k in self.txt_drone_g2.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
+            g3_kws = [k.strip().lower() for k in self.txt_drone_g3.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
+            self.config.drone_dict.group1_keywords = g1_kws
+            self.config.drone_dict.group2_keywords = g2_kws
+            self.config.drone_dict.group3_keywords = g3_kws
+
+            # Парсинг звуковых профилей
+            for prof_key, (e_cnt, e_dur, e_pau, e_int) in self.sound_profile_entries.items():
+                if hasattr(self.config.sound_profiles, prof_key):
+                    p_obj = getattr(self.config.sound_profiles, prof_key)
+                    p_obj.beep_count = int(e_cnt.get().strip())
+                    p_obj.beep_duration_ms = int(e_dur.get().strip())
+                    p_obj.pause_between_ms = int(e_pau.get().strip())
+                    p_obj.interval_series_ms = int(e_int.get().strip())
 
             # Сохранение конфигурации в JSON
             self._save_to_json()
@@ -245,13 +460,31 @@ class ThreatConfigDialog(tk.Toplevel):
             if self.on_save:
                 self.on_save(self.config)
 
-            messagebox.showinfo("Сохранено", "Настройки анализатора угроз и маппинга бит успешно сохранены!")
+            messagebox.showinfo("Сохранено", "Настройки анализатора угроз, словаря БпЛА и звуковых профилей сохранены!")
             self.destroy()
         except Exception as e:
             messagebox.showerror("Ошибка ввода", f"Проверьте корректность введенных данных:\n{e}")
 
     def _save_to_json(self):
         """Сохранение конфигурации в config_threats.json."""
+        sp = self.config.sound_profiles
+        sound_profiles_dict = {}
+        for k in [
+            "safe_heartbeat", "rocket_critical", "rocket_potential",
+            "kab_district_critical", "kab_city_critical", "kab_potential",
+            "drone_g1_district_critical", "drone_g1_city", "drone_g2_tactical", "drone_g3_decoy"
+        ]:
+            if hasattr(sp, k):
+                obj = getattr(sp, k)
+                sound_profiles_dict[k] = {
+                    "code": obj.code,
+                    "name": obj.name,
+                    "beep_count": obj.beep_count,
+                    "beep_duration_ms": obj.beep_duration_ms,
+                    "pause_between_ms": obj.pause_between_ms,
+                    "interval_series_ms": obj.interval_series_ms
+                }
+
         data = {
             "alarmmap_enabled": self.config.alarmmap_enabled,
             "alarmmap_key_file": self.config.alarmmap_key_file,
@@ -279,12 +512,25 @@ class ThreatConfigDialog(tk.Toplevel):
                 "bit_type_kab": self.config.bit_mapping.bit_type_kab,
                 "bit_type_drone": self.config.bit_mapping.bit_type_drone,
                 "bit_no_link": self.config.bit_mapping.bit_no_link,
+                "bit_muted_by_schedule": self.config.bit_mapping.bit_muted_by_schedule,
                 "bit_heartbeat": self.config.bit_mapping.bit_heartbeat
             },
             "plc_feedback": {
                 "bit_plc_running": self.config.plc_feedback.bit_plc_running,
-                "bit_alarm_reset": self.config.plc_feedback.bit_alarm_reset
+                "bit_alarm_reset": self.config.plc_feedback.bit_alarm_reset,
+                "bit_analysis_switch": self.config.plc_feedback.bit_analysis_switch
             },
+            "schedule": {
+                "enabled": self.config.schedule.enabled,
+                "start_time": self.config.schedule.start_time,
+                "end_time": self.config.schedule.end_time
+            },
+            "drone_dict": {
+                "group1_keywords": self.config.drone_dict.group1_keywords,
+                "group2_keywords": self.config.drone_dict.group2_keywords,
+                "group3_keywords": self.config.drone_dict.group3_keywords
+            },
+            "sound_profiles": sound_profiles_dict,
             "auto_transfer_to_plc": self.config.auto_transfer_to_plc
         }
         with open("config_threats.json", "w", encoding="utf-8") as f:

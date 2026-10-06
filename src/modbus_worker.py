@@ -48,10 +48,18 @@ class ModbusWorker:
         return self._connected
 
     def queue_write(self, value: int, address: Optional[int] = None):
-        """Поместить запрос на разовую/немедленную запись в очередь."""
+        """Поместить запрос на разовую запись одного регистра."""
         target_addr = address if address is not None else self.config.write_reg_address
         self.current_write_val = value & 0xFFFF
-        self._write_queue.put((target_addr, self.current_write_val))
+        self._write_queue.put((target_addr, [self.current_write_val]))
+
+    def queue_write_registers(self, values: list, start_address: Optional[int] = None):
+        """Поместить запрос на запись нескольких последовательных регистров."""
+        target_addr = start_address if start_address is not None else self.config.write_reg_address
+        clamped_vals = [int(v) & 0xFFFF for v in values]
+        if clamped_vals:
+            self.current_write_val = clamped_vals[0]
+        self._write_queue.put((target_addr, clamped_vals))
 
     def set_cyclic_write(self, enabled: bool, value: Optional[int] = None):
         """Включить/выключить циклическую запись каждого цикла."""
@@ -133,21 +141,28 @@ class ModbusWorker:
                         break
 
                 # Если есть команды из очереди - записываем их
-                for w_addr, w_val in pending_writes:
+                for w_addr, w_vals in pending_writes:
                     t0 = time.perf_counter()
                     self.total_requests += 1
                     try:
-                        res = client.write_register(
-                            address=w_addr,
-                            value=w_val & 0xFFFF,
-                            device_id=self.config.unit_id
-                        )
+                        if len(w_vals) == 1:
+                            res = client.write_register(
+                                address=w_addr,
+                                value=w_vals[0] & 0xFFFF,
+                                device_id=self.config.unit_id
+                            )
+                        else:
+                            res = client.write_registers(
+                                address=w_addr,
+                                values=[int(v) & 0xFFFF for v in w_vals],
+                                device_id=self.config.unit_id
+                            )
                         dt = (time.perf_counter() - t0) * 1000
                         if res is None or res.isError():
                             self.failed_requests += 1
                             consecutive_errors += 1
                             err = str(res) if res else "Таймаут записи"
-                            self._post_event("error", {"op": "write", "msg": f"Ошибка записи %MW{w_addr}: {err}"})
+                            self._post_event("error", {"op": "write", "msg": f"Ошибка записи %MW{w_addr} (кол-во {len(w_vals)}): {err}"})
                             if "ModbusIOException" in str(type(res)) or "Connection" in str(err):
                                 cycle_has_critical_error = True
                         else:
@@ -156,7 +171,9 @@ class ModbusWorker:
                             self.last_latency_ms = dt
                             self._post_event("write_ok", {
                                 "address": w_addr,
-                                "value": w_val & 0xFFFF,
+                                "value": w_vals[0] & 0xFFFF,
+                                "count": len(w_vals),
+                                "values": w_vals,
                                 "latency_ms": dt
                             })
                     except Exception as e:

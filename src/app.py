@@ -56,6 +56,14 @@ class ModbusApp(tk.Tk):
         # Запуск цикла обработки событий от воркера
         self.after(50, self._process_events)
 
+        # Автоматическое включение связи с контроллером при запуске
+        self.after(200, self._auto_connect_plc)
+
+    def _auto_connect_plc(self):
+        """Автоматический запуск связи с ПЛК по умолчанию при старте программы."""
+        self._log("Автоподключение к ПЛК по умолчанию при старте программы...", tag="info")
+        self._toggle_connection()
+
     def _init_variables(self):
         # Сеть
         self.var_host = tk.StringVar(value=self.config.host)
@@ -70,9 +78,12 @@ class ModbusApp(tk.Tk):
         self.var_threat_desc = tk.StringVar(value=f"Сектор: {self.threat_config.district.name} — обстановка спокойная")
         self.var_threat_details = tk.StringVar(value="Источники: AlarmMap и Telegram подключены. Мониторинг активен.")
         self.var_threat_word = tk.StringVar(value="%MW0: 0x0001 (Бит 0)")
+        self.var_threat_sound = tk.StringVar(value="Звук: Heartbeat (1 гуд.)")
         self.var_badge_rocket = tk.StringVar(value="")
         self.var_badge_kab = tk.StringVar(value="")
         self.var_badge_drone = tk.StringVar(value="")
+        self.var_badge_muted = tk.StringVar(value="")
+        self.var_badge_plc_sw = tk.StringVar(value="")
 
         # Регистры
         self.var_write_addr = tk.StringVar(value=str(self.config.write_reg_address))
@@ -99,6 +110,7 @@ class ModbusApp(tk.Tk):
         self.var_autoscroll = tk.BooleanVar(value=True)
         self.var_plc_feedback_text = tk.StringVar(value="ПЛК: ожидание связи")
         self._last_plc_reset_bit = False
+        self._last_plc_switch_bit: Optional[bool] = None
 
         self._updating_write_inputs = False
         self._last_sent_val = -1
@@ -227,7 +239,21 @@ class ModbusApp(tk.Tk):
         )
         btn_cfg.pack(side="right")
 
-        # Слово для ПЛК
+        # Звуковой профиль гудков
+        self.lbl_threat_sound = tk.Label(
+            top_row,
+            textvariable=self.var_threat_sound,
+            font=FONT_BOLD,
+            bg="#1e293b",
+            fg="#38bdf8",
+            padx=8,
+            pady=3,
+            bd=1,
+            relief="solid"
+        )
+        self.lbl_threat_sound.pack(side="right", padx=(0, 10))
+
+        # Слово для ПЛК (%MW0)
         self.lbl_threat_plc_word = tk.Label(
             top_row,
             textvariable=self.var_threat_word,
@@ -235,7 +261,7 @@ class ModbusApp(tk.Tk):
             bg=BG_CARD,
             fg=TEXT_ACCENT
         )
-        self.lbl_threat_plc_word.pack(side="right", padx=(0, 14))
+        self.lbl_threat_plc_word.pack(side="right", padx=(0, 10))
 
         # Нижняя строка: последнее событие и бейджи
         bot_row = tk.Frame(card, bg=BG_CARD)
@@ -247,6 +273,8 @@ class ModbusApp(tk.Tk):
         self.lbl_badge_rocket = tk.Label(self.badge_box, textvariable=self.var_badge_rocket, font=FONT_BOLD, bg="#7f1d1d", fg="#fca5a5", padx=6, pady=1)
         self.lbl_badge_kab = tk.Label(self.badge_box, textvariable=self.var_badge_kab, font=FONT_BOLD, bg="#78350f", fg="#fcd34d", padx=6, pady=1)
         self.lbl_badge_drone = tk.Label(self.badge_box, textvariable=self.var_badge_drone, font=FONT_BOLD, bg="#312e81", fg="#a5b4fc", padx=6, pady=1)
+        self.lbl_badge_muted = tk.Label(self.badge_box, textvariable=self.var_badge_muted, font=FONT_BOLD, bg="#475569", fg="#e2e8f0", padx=6, pady=1)
+        self.lbl_badge_plc_sw = tk.Label(self.badge_box, textvariable=self.var_badge_plc_sw, font=FONT_BOLD, bg="#374151", fg="#9ca3af", padx=6, pady=1)
 
         self.lbl_threat_details = tk.Label(
             bot_row,
@@ -304,10 +332,36 @@ class ModbusApp(tk.Tk):
             self.lbl_badge_kab.pack_forget()
 
         if st.has_drone:
-            self.var_badge_drone.set("🛸 ДРОН")
+            d_name_tag = f": {st.matched_drone_name.upper()}" if st.matched_drone_name else ""
+            g_tag = f" (Гр.{st.drone_group})" if st.drone_group else ""
+            self.var_badge_drone.set(f"🛸 ДРОН{g_tag}{d_name_tag}")
             self.lbl_badge_drone.pack(side="right", padx=2)
         else:
             self.lbl_badge_drone.pack_forget()
+
+        # Отображение текущего звукового профиля
+        if st.sound_beep_count > 0:
+            dur_s = st.sound_duration_ms / 1000.0
+            int_s = st.sound_interval_ms / 1000.0
+            self.var_threat_sound.set(f"🔊 {st.sound_profile_name} [{st.sound_beep_count} гуд. по {dur_s:.1f}с / пауза {int_s:.0f}с]")
+            self.lbl_threat_sound.config(fg="#38bdf8", bg="#1e293b")
+        else:
+            self.var_threat_sound.set(f"🔇 {st.sound_profile_name}")
+            self.lbl_threat_sound.config(fg="#94a3b8", bg="#0f172a")
+
+        # Бейдж тихого часа по расписанию
+        if st.is_muted:
+            self.var_badge_muted.set(f"🌙 ТИХИЙ ЧАС ({self.threat_config.schedule.start_time}–{self.threat_config.schedule.end_time})")
+            self.lbl_badge_muted.pack(side="right", padx=2)
+        else:
+            self.lbl_badge_muted.pack_forget()
+
+        # Бейдж тумблера ПЛК
+        if st.analysis_disabled_by_plc:
+            self.var_badge_plc_sw.set("⛔ АНАЛИЗ ОТКЛЮЧЕН (ТУМБЛЕР ПЛК)")
+            self.lbl_badge_plc_sw.pack(side="right", padx=2)
+        else:
+            self.lbl_badge_plc_sw.pack_forget()
 
         if st.last_event_text:
             t_str = time.strftime("%H:%M:%S", time.localtime(st.last_event_time))
@@ -315,12 +369,27 @@ class ModbusApp(tk.Tk):
         else:
             self.var_threat_details.set("Источники: AlarmMap и Telegram активны. Мониторинг 24/7.")
 
-        # Автоматическая передача слова тревоги в ПЛК
+        # Автоматическая передача слова тревоги (%MW0) и динамического звукового профиля (%MW2..%MW6) в ПЛК
         if self.threat_config.auto_transfer_to_plc:
             target_val = st.modbus_word & 0xFFFF
             self._update_write_views(target_val, source="threat_engine")
             if self.worker.is_connected():
+                # 1. Запись слова тревоги %MW0
                 self.worker.queue_write(target_val, address=self.config.write_reg_address)
+                # 2. Запись звукового профиля гудков в %MW2..%MW6:
+                #    %MW2: Код профиля
+                #    %MW3: Кол-во гудков
+                #    %MW4: Длительность гудка (мс)
+                #    %MW5: Пауза между гудками (мс)
+                #    %MW6: Пауза между сериями гудков (мс)
+                sound_regs = [
+                    st.sound_code & 0xFFFF,
+                    st.sound_beep_count & 0xFFFF,
+                    st.sound_duration_ms & 0xFFFF,
+                    st.sound_pause_ms & 0xFFFF,
+                    st.sound_interval_ms & 0xFFFF
+                ]
+                self.worker.queue_write_registers(sound_regs, start_address=2)
 
     def _build_network_panel(self, parent):
         card = tk.LabelFrame(
@@ -801,8 +870,10 @@ class ModbusApp(tk.Tk):
                     pf = self.threat_config.plc_feedback
                     bit_reset = pf.bit_alarm_reset
                     bit_run = pf.bit_plc_running
+                    bit_sw = pf.bit_analysis_switch
                     is_reset_high = bool((val >> bit_reset) & 1)
                     is_run_high = bool((val >> bit_run) & 1)
+                    is_sw_high = bool((val >> bit_sw) & 1)
 
                     # Фронт кнопки сброса тревоги от ПЛК (0 -> 1)
                     if is_reset_high and not self._last_plc_reset_bit:
@@ -810,12 +881,20 @@ class ModbusApp(tk.Tk):
                         self.threat_evaluator.reset_threat_state(source=f"Кнопка сброса ПЛК (%MW{addr}: Бит {bit_reset})")
                     self._last_plc_reset_bit = is_reset_high
 
+                    # Переключатель вкл/выкл анализ тревог от ПЛК
+                    if self._last_plc_switch_bit != is_sw_high:
+                        sw_str = "ВКЛЮЧЕН" if is_sw_high else "ВЫКЛЮЧЕН (приостановлен)"
+                        self._log(f"[ПЛК] Переключатель анализа тревог (%MW{addr}, Бит {bit_sw}): {sw_str}", tag="info")
+                        self.threat_evaluator.set_plc_analysis_switch(is_sw_high)
+                        self._last_plc_switch_bit = is_sw_high
+
                     # Обновление строки статуса ПЛК
                     run_txt = "В РАБОТЕ" if is_run_high else "ОСТАНОВЛЕН"
                     run_color = COLOR_SUCCESS if is_run_high else COLOR_WARNING
+                    sw_txt = "АНАЛИЗ ВКЛ" if is_sw_high else "АНАЛИЗ ВЫКЛ"
                     self.lbl_plc_feedback.config(fg=run_color)
                     self.var_plc_feedback_text.set(
-                        f"ПЛК: {run_txt} (Бит {bit_run}) | Кнопка сброса: {'[НАЖАТА]' if is_reset_high else 'ОТЖАТА'} (Бит {bit_reset})"
+                        f"ПЛК: {run_txt} (Бит {bit_run}) | Тумблер: {sw_txt} (Бит {bit_sw}) | Сброс: {'[НАЖАТА]' if is_reset_high else 'ОТЖАТА'} (Бит {bit_reset})"
                     )
 
                     # Обновляем табло

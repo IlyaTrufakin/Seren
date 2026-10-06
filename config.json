@@ -9,5 +9,5 @@
     "read_reg_address": 2,
     "cyclic_write": false,
     "write_on_change": true,
-    "last_write_value": 1
+    "last_write_value": 32769
 }

@@ -315,7 +315,9 @@ class ThreatEvaluator:
         published = self._message_timestamp(msg)
         now = time.time()
         ttl = self.config.district.ttl_seconds
-        if published is None or published > now + 30 or published + ttl <= now:
+        # Show recent operational channel messages in UI (up to 2 hours history), but active alarms require fresh TTL
+        history_window = 7200
+        if published is None or published > now + 30 or published + history_window <= now:
             return
         channel = normalize_channel(msg.get('channel', ''))
         if channel not in [normalize_channel(c) for c in self.config.telegram_channels]:
@@ -323,6 +325,10 @@ class ThreatEvaluator:
         text = msg.get('text', '').strip()
         lower = text.lower()
         if not lower:
+            return
+        # Ignore ads, donation cards, administrative messages
+        if any(w in lower for w in ['monobank', 'монобанк', 'карта:', 'картку', 'фінансова підтримка',
+                                    'финансовая поддержка', 'збір на', 'сбор на', 'підтримати канал', 'поддержать канал']):
             return
         with self._lock:
             if self._stop_event.is_set():
@@ -342,6 +348,11 @@ class ThreatEvaluator:
             if name:
                 kinds.append('drone')
             context = self._channel_context.get(source)
+            if not context or published - context['timestamp'] > tracking.context_seconds:
+                for other_src, other_ctx in self._channel_context.items():
+                    if 0 <= published - other_ctx['timestamp'] <= tracking.context_seconds:
+                        context = other_ctx
+                        break
             context_fresh = (tracking.enabled and context and len(context['kinds']) == 1
                 and 0 <= published-context['timestamp'] <= tracking.context_seconds)
             if context_fresh:
@@ -385,9 +396,10 @@ class ThreatEvaluator:
                     for kind in kinds:
                         key = (source, kind, event_id)
                         if key not in self._observations and published > self._end_watermarks.get((source, kind, district), 0):
-                            self._observations[key] = Observation(source, kind, approach, published, published+ttl,
-                                text, group if kind == 'drone' else 0, name if kind == 'drone' else '', district,
-                                event_id=event_id, quantity=quantity, resolution='Потеря фиксации не подтверждает завершение угрозы')
+                            if published + ttl > now:
+                                self._observations[key] = Observation(source, kind, approach, published, published+ttl,
+                                    text, group if kind == 'drone' else 0, name if kind == 'drone' else '', district,
+                                    event_id=event_id, quantity=quantity, resolution='Потеря фиксации не подтверждает завершение угрозы')
                 # Do not re-activate a target from the threat words in an ending message.
             else:
                 movement_note = ''
@@ -408,6 +420,8 @@ class ThreatEvaluator:
                     marker = (source, kind, district)
                     if published <= self._end_watermarks.get(marker, 0):
                         continue
+                    if published + ttl <= now:
+                        continue  # Expired observation: kept in operational event history, but does not trigger live alarm
                     observation_text = text
                     if inferred:
                         observation_text += f" [тип из контекста @{channel}: {context['text']}]"

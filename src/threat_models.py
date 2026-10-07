@@ -550,9 +550,9 @@ class ThreatSystemConfig:
             if any(not isinstance(v, int) or not 0 <= v <= 65535 for v in
                    [p.code, p.beep_count, p.beep_duration_ms, p.pause_between_ms, p.interval_series_ms]):
                 raise ValueError("Параметры звука должны быть в диапазоне 0..65535")
-            # В ПЛК время импульса/паузы хранится в шагах 100 мс, серии — 1 с.
-            if p.beep_duration_ms % 100 or p.pause_between_ms % 100 or p.interval_series_ms % 1000:
-                raise ValueError("Длительность/пауза: шаг 100 мс; интервал серий: шаг 1000 мс")
+            # В ПЛК время импульса/паузы хранится в шагах 10 мс (%TM1, %TM2 TimeBase: TenMilliSeconds), серии — 1 с (%TM3).
+            if p.beep_duration_ms % 10 or p.pause_between_ms % 10 or p.interval_series_ms % 1000:
+                raise ValueError("Длительность/пауза: шаг 10 мс; интервал серий: шаг 1000 мс")
             if p.beep_count and (not p.beep_duration_ms or not p.interval_series_ms):
                 raise ValueError("Для включенного звука задайте длительность и интервал")
         codes = [r.sound.code for r in self.alarm_rules]

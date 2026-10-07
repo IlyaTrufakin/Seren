@@ -715,7 +715,7 @@
   ],
   "tracking": {
     "enabled": true,
-    "context_seconds": 180,
+    "context_seconds": 360,
     "movement_action": "shorten",
     "movement_hold_seconds": 60,
     "movement_keywords": [

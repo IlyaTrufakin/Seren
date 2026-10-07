@@ -211,8 +211,8 @@ class ThreatEvaluator:
             return '-', '-'
 
     def _match_drone_dictionary(self, text):
-        for group in (1, 2, 3):
-            for keyword in getattr(self.config.drone_dict, f'group{group}_keywords'):
+        for group in (3, 2, 1, 0):
+            for keyword in getattr(self.config.drone_dict, f'group{group}_keywords', []):
                 if keyword and keyword.lower() in text:
                     return group, keyword
         return (0, 'тип не определён') if any(k in text for k in ['дрон', 'бпла', 'бплa', 'бпл', 'мопед', 'бандерол']) else (0, '')
@@ -379,11 +379,6 @@ class ThreatEvaluator:
                     approach = 'city' if any(w in lower for w in ['над', 'в черте', 'в межах']) else 'toward_city'
 
             context = self._channel_context.get(source)
-            if not context or published - context['timestamp'] > tracking.context_seconds:
-                for other_src, other_ctx in self._channel_context.items():
-                    if 0 <= published - other_ctx['timestamp'] <= tracking.context_seconds:
-                        context = other_ctx
-                        break
             context_fresh = (tracking.enabled and context and len(context['kinds']) == 1
                 and 0 <= published-context['timestamp'] <= tracking.context_seconds)
             if context_fresh:
@@ -398,15 +393,10 @@ class ThreatEvaluator:
                     kinds = list(context['kinds'])
                     group, name = context['group'], context['name']
                     inferred = True
-                elif has_shelter:
-                    # An urgent call to shelter with no prior context: treat as high-priority alert (rocket)
-                    kinds = ['rocket']
-                    inferred = True
-                elif has_city_approach or (movement and (district or city)):
-                    # Explicit movement towards city/district with no prior context: treat as incoming drone
-                    kinds = ['drone']
+                elif has_shelter or has_city_approach:
+                    kinds = ['unknown']
                     group = 0
-                    name = 'тип не определён'
+                    name = ''
                     inferred = True
             condition = self._ending_condition(lower, source, kinds)
             if condition and condition.regional_clear and self._has_keywords(lower,
@@ -421,14 +411,14 @@ class ThreatEvaluator:
             has_explicit_threat = (self._has_keywords(lower, tracking.rocket_keywords) or
                                    self._has_keywords(lower, tracking.bomb_keywords) or bool(name))
             category = 'clear' if condition else ('shelter' if has_shelter and not has_explicit_threat else kinds[0])
-            badge_threat_str = condition.name if condition else ('В укрытие!' if has_shelter and not has_explicit_threat else '/'.join(THREAT_TYPES[k] for k in kinds))
+            badge_threat_str = condition.name if condition else ('В укрытие!' if has_shelter and not has_explicit_threat else '/'.join(THREAT_TYPES.get(k, k) for k in kinds))
             event = SignificantEvent(
                 time_str=datetime.fromtimestamp(published).strftime('%H:%M:%S'), timestamp=published,
                 channel=channel, category=category,
                 badge_threat=badge_threat_str,
                 badge_target=APPROACHES.get(approach, 'Приближение не определено') + (' / контекст канала' if inferred else ''),
                 sector_name=district or 'Город / область', drone_name=name, drone_group=group,
-                text=text, is_critical=approach in ('district', 'toward_district') or has_shelter)
+                text=text, is_critical=approach in ('district', 'toward_district'))
             self.status.significant_events.insert(0, event)
             del self.status.significant_events[40:]
             self.recent_events_log.insert(0, dict(channel=channel, text=text, time_str=event.time_str))
@@ -573,12 +563,12 @@ class ThreatEvaluator:
             if evidence:
                 matches.append((rule, evidence))
         matches.sort(key=lambda pair: ({'critical': 3, 'high': 2, 'low': 1}[pair[0].severity],
-                                       {'rocket': 3, 'kab': 2, 'drone': 1}[pair[0].threat_type]), reverse=True)
+                                       {'rocket': 4, 'kab': 3, 'drone': 2, 'unknown': 1}[pair[0].threat_type]), reverse=True)
         st.analysis_disabled_by_plc = not self._plc_analysis_enabled or not self.config.enabled
         st.is_muted = self.config.schedule.is_in_schedule()
         st.active_rule_id = st.active_threat_type = ''
         st.severity, st.level_code, st.level_title = 'safe', 0, 'Отсутствие тревог'
-        st.has_rocket = st.has_kab = st.has_drone = False
+        st.has_rocket = st.has_kab = st.has_drone = st.has_unknown = False
         st.is_city_threat = st.is_district_threat = False
         st.drone_group, st.matched_drone_name = 0, ''
         st.matched_sources = []
@@ -593,7 +583,7 @@ class ThreatEvaluator:
                              'critical': 5 if st.is_district_threat else 4}[rule.severity]
             st.level_title = f'{SEVERITIES[rule.severity]} опасность — {THREAT_TYPES[rule.threat_type].lower()}'
             # Flags represent the selected alarm; simultaneous alternatives are explained below.
-            st.has_rocket, st.has_kab, st.has_drone = (rule.threat_type == k for k in ('rocket', 'kab', 'drone'))
+            st.has_rocket, st.has_kab, st.has_drone, st.has_unknown = (rule.threat_type == k for k in ('rocket', 'kab', 'drone', 'unknown'))
             st.drone_group, st.matched_drone_name = leading.drone_group, leading.drone_name
             st.matched_sources = sorted({o.source for o in evidence})
             st.selected_event_ids = sorted({o.event_id for o in evidence if o.event_id})
@@ -609,7 +599,7 @@ class ThreatEvaluator:
                 reasons.append(f'{source} [{timestamp}]: {details}')
             st.reason = f'Сработало правило «{rule.sound.name}».\n' + '\n'.join(reasons)
             if len(matches) > 1:
-                st.reason += '\nДругие совпадения: ' + ', '.join(r.sound.name for r, _ in matches[1:]) + '. Выбор: степень → ракета → бомба → дрон.'
+                st.reason += '\nДругие совпадения: ' + ', '.join(r.sound.name for r, _ in matches[1:]) + '. Выбор: степень → ракета → бомба → дрон → неопознанная.'
         else:
             st.reason = 'Нет совпадений с включёнными правилами.'
             if observations:
@@ -629,7 +619,7 @@ class ThreatEvaluator:
             selected = [o for o in tg if bool(o.district) == (scope == 'district')]
             scope_matches = [(r, o) for r in self.config.alarm_rules for o in selected if self._rule_matches(r, o)]
             scope_matches.sort(key=lambda pair: ({'critical': 3, 'high': 2, 'low': 1}[pair[0].severity],
-                                                 {'rocket': 3, 'kab': 2, 'drone': 1}[pair[0].threat_type]), reverse=True)
+                                                 {'rocket': 4, 'kab': 3, 'drone': 2, 'unknown': 1}[pair[0].threat_type]), reverse=True)
             scope_rule, chosen = scope_matches[0] if scope_matches else (None, None)
             setattr(st, f'tg_{scope}_threat', chosen.threat_type if chosen else '')
             scope_level = ({'low': 1, 'high': 3 if scope == 'district' else 2,
@@ -659,7 +649,8 @@ class ThreatEvaluator:
             level_bits = [bm.bit_safe, bm.bit_threat_minimal, bm.bit_threat_city_potential,
                           bm.bit_threat_district_potential, bm.bit_threat_city_critical, bm.bit_threat_district_critical]
             val = 1 << level_bits[st.level_code]
-            for active, bit in [(st.has_rocket, bm.bit_type_rocket), (st.has_kab, bm.bit_type_kab), (st.has_drone, bm.bit_type_drone)]:
+            for active, bit in [(st.has_rocket, bm.bit_type_rocket), (st.has_kab, bm.bit_type_kab),
+                                (st.has_drone, bm.bit_type_drone), (st.has_unknown, getattr(bm, 'bit_type_unknown', 11))]:
                 if active:
                     val |= 1 << bit
         if st.no_data_link:

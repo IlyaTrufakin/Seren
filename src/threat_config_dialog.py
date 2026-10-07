@@ -1,3 +1,4 @@
+import re
 import tkinter as tk
 from tkinter import ttk, messagebox
 import os
@@ -9,6 +10,37 @@ from src.ui_theme import (
     COLOR_PRIMARY, COLOR_SUCCESS, COLOR_WARNING, COLOR_DANGER,
     FONT_TITLE, FONT_SUBTITLE, FONT_REGULAR, FONT_BOLD, FONT_MONO
 )
+
+def parse_duration_ms(val_str, min_ms=10, step_ms=10):
+    """Парсит длительность: поддерживает как мс (50, 800), так и сек (0.05, 0.1, 0.8 с точкой или запятой)."""
+    s = str(val_str).strip().replace(',', '.')
+    s = re.sub(r'[a-zA-Zа-яА-Я]+', '', s).strip()
+    if not s:
+        return 0
+    val = float(s)
+    if '.' in str(val_str) or ',' in str(val_str) or (0 < val < 10):
+        ms = int(round(val * 1000))
+    else:
+        ms = int(round(val))
+    if step_ms > 1:
+        ms = int(round(ms / step_ms)) * step_ms
+    if ms < min_ms and ms > 0:
+        ms = min_ms
+    return ms
+
+def parse_interval_series_ms(val_str):
+    """Парсит интервал серий: поддерживает как сек (4, 8, 15, 30), так и мс (4000, 8000)."""
+    s = str(val_str).strip().replace(',', '.')
+    s = re.sub(r'[a-zA-Zа-яА-Я]+', '', s).strip()
+    if not s:
+        return 0
+    val = float(s)
+    if '.' in str(val_str) or ',' in str(val_str) or val < 100:
+        ms = int(round(val * 1000))
+    else:
+        ms = int(round(val))
+    ms = int(round(ms / 1000)) * 1000
+    return max(1000, ms)
 
 class ThreatConfigDialog(tk.Toplevel):
     """Окно конфигуратора анализатора угроз, районов и маппинга бит на ПЛК."""
@@ -58,11 +90,11 @@ class ThreatConfigDialog(tk.Toplevel):
 
         # 6. Вкладка "Звуковые профили ПЛК"
         tab_sounds = tk.Frame(notebook, bg=BG_MAIN, padx=10, pady=10)
-        notebook.add(tab_sounds, text="10 звуков")
+        notebook.add(tab_sounds, text="Звуковые профили")
         self._build_sounds_tab(tab_sounds)
 
         tab_rules = tk.Frame(notebook, bg=BG_MAIN)
-        notebook.add(tab_rules, text="9 правил тревог")
+        notebook.add(tab_rules, text="12 правил тревог")
         self._build_rules_tab(tab_rules)
         tab_end = tk.Frame(notebook, bg=BG_MAIN)
         notebook.add(tab_end, text="Эвристика / окончание")
@@ -201,6 +233,7 @@ class ThreatConfigDialog(tk.Toplevel):
             ("Флаг типа: Ракеты / Баллистика:", "bit_type_rocket", bm.bit_type_rocket),
             ("Флаг типа: Управляемые авиабомбы (КАБ):", "bit_type_kab", bm.bit_type_kab),
             ("Флаг типа: Ударные БпЛА (Шахеды / дроны):", "bit_type_drone", bm.bit_type_drone),
+            ("Флаг типа: Неопознанная угроза:", "bit_type_unknown", getattr(bm, "bit_type_unknown", 11)),
             ("Нет связи с источниками данных (AlarmMap/TG):", "bit_no_link", bm.bit_no_link),
             ("Режим тишины по расписанию (тревоги заглушены):", "bit_muted_by_schedule", bm.bit_muted_by_schedule),
             ("Heartbeat (мигающий бит жизни программы):", "bit_heartbeat", bm.bit_heartbeat),
@@ -289,7 +322,7 @@ class ThreatConfigDialog(tk.Toplevel):
     def _build_drones_tab(self, parent):
         card = tk.LabelFrame(
             parent,
-            text="  Классификатор названий беспилотников (3 группы опасности)  ",
+            text="  Классификатор названий беспилотников (4 группы опасности: 0 = мин., 3 = макс.)  ",
             bg=BG_CARD,
             fg=TEXT_ACCENT,
             font=FONT_SUBTITLE,
@@ -300,8 +333,8 @@ class ThreatConfigDialog(tk.Toplevel):
 
         tk.Label(
             card,
-            text="При фиксации нескольких типов БпЛА одновременно в одном сообщении преобладает наиболее опасная группа (Группа 1 > Группа 2 > Группа 3).\n"
-                 "Слова вносите через запятую (например: шахед, герань, гербера):",
+            text="При фиксации нескольких типов БпЛА преобладает наиболее опасная группа (Гр.3 > Гр.2 > Гр.1 > Гр.0).\n"
+                 "Слова вносите через запятую (например: шахед, герань, молния):",
             font=FONT_REGULAR,
             bg=BG_CARD,
             fg=TEXT_MUTED,
@@ -309,23 +342,29 @@ class ThreatConfigDialog(tk.Toplevel):
             wraplength=700
         ).pack(anchor="w", pady=(0, 6))
 
-        # Группа 1: Тяжелые ударные (Критическая)
-        tk.Label(card, text="🔴 Группа 1: Высокая опасность (Тяжелые ударные камикадзе с мощной БЧ):", bg=BG_CARD, fg="#f87171", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
-        self.txt_drone_g1 = tk.Text(card, height=3, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
-        self.txt_drone_g1.pack(fill="x", pady=(0, 6))
-        self.txt_drone_g1.insert("1.0", ", ".join(self.config.drone_dict.group1_keywords))
+        # Группа 3: Тяжелые камикадзе (Самая высокая)
+        tk.Label(card, text="🔴 Группа 3: Самая высокая опасность (Тяжелые ударные камикадзе: Шахед, Герань, Гербера, Италмас...):", bg=BG_CARD, fg="#f87171", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
+        self.txt_drone_g3 = tk.Text(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g3.pack(fill="x", pady=(0, 4))
+        self.txt_drone_g3.insert("1.0", ", ".join(self.config.drone_dict.group3_keywords))
 
-        # Группа 2: Тактические / Разведчики (Средняя)
-        tk.Label(card, text="🟡 Группа 2: Средняя опасность (Тактические ударные, FPV дальнего действия, разведчики):", bg=BG_CARD, fg="#fcd34d", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
-        self.txt_drone_g2 = tk.Text(card, height=3, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
-        self.txt_drone_g2.pack(fill="x", pady=(0, 6))
+        # Группа 2: Тактические ударные / FPV (Средняя)
+        tk.Label(card, text="🟠 Группа 2: Средняя опасность (Тактические ударные: Молния, Ланцет, FPV):", bg=BG_CARD, fg="#fb923c", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
+        self.txt_drone_g2 = tk.Text(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g2.pack(fill="x", pady=(0, 4))
         self.txt_drone_g2.insert("1.0", ", ".join(self.config.drone_dict.group2_keywords))
 
-        # Группа 3: Ложные цели / Имитаторы (Низкая)
-        tk.Label(card, text="🟢 Группа 3: Низкая опасность (Ложные цели, имитаторы, приманки без БЧ):", bg=BG_CARD, fg="#34d399", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
-        self.txt_drone_g3 = tk.Text(card, height=3, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
-        self.txt_drone_g3.pack(fill="x", pady=(0, 2))
-        self.txt_drone_g3.insert("1.0", ", ".join(self.config.drone_dict.group3_keywords))
+        # Группа 1: Разведчики (Низкая)
+        tk.Label(card, text="🟡 Группа 1: Низкая опасность (Разведчики: Суперкам, Зала, Орлан):", bg=BG_CARD, fg="#fcd34d", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
+        self.txt_drone_g1 = tk.Text(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g1.pack(fill="x", pady=(0, 4))
+        self.txt_drone_g1.insert("1.0", ", ".join(self.config.drone_dict.group1_keywords))
+
+        # Группа 0: Ложные цели / Неопознанные БпЛА (Самая низкая)
+        tk.Label(card, text="🟢 Группа 0: Самая низкая опасность (Ложные цели, фанера, приманки без БЧ, неопознанные / общий БпЛА):", bg=BG_CARD, fg="#34d399", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
+        self.txt_drone_g0 = tk.Text(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g0.pack(fill="x", pady=(0, 2))
+        self.txt_drone_g0.insert("1.0", ", ".join(getattr(self.config.drone_dict, "group0_keywords", [])))
 
     def _build_sounds_tab(self, parent):
         card = tk.LabelFrame(
@@ -341,25 +380,25 @@ class ThreatConfigDialog(tk.Toplevel):
 
         tk.Label(
             card,
-            text="ПЛК принимает параметры активного звука: %MW2 (Код профиля), %MW3 (Кол-во гудков), "
-                 "%MW4 (Длительность гудка, мс), %MW5 (Пауза между гудками, мс), %MW6 (Интервал между сериями, мс). "
-                 "При блокировке тумблером с ПЛК или в тихий час на ПЛК передаются все нули.",
+            text="ПЛК принимает параметры активного звука: %MW2 (Код профиля), %MW3 (Кол-во гудков), %MW4 (Длительность гудка, мс), %MW5 (Пауза между гудками, мс), %MW6 (Интервал между сериями, мс).\n"
+                 "Длительность гудка и паузы можно задавать в мс (50, 100, 800) или сек (0.05, 0.1, 0.8), шаг 10 мс (мин. 10 мс). "
+                 "Интервал серий кратен 1 с (1000 мс).",
             font=FONT_REGULAR,
             bg=BG_CARD,
             fg=TEXT_MUTED,
             justify="left",
-            wraplength=700
+            wraplength=850
         ).pack(anchor="w", pady=(0, 6))
 
         # Заголовки таблицы
         headers_frame = tk.Frame(card, bg=BG_CARD)
         headers_frame.pack(fill="x", pady=(2, 4))
-        tk.Label(headers_frame, text="Событие оповещения", width=36, anchor="w", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left")
+        tk.Label(headers_frame, text="Событие оповещения", width=34, anchor="w", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left")
         tk.Label(headers_frame, text="Код", width=5, bg=BG_CARD, fg=TEXT_MUTED, font=FONT_BOLD).pack(side="left", padx=2)
-        tk.Label(headers_frame, text="Гудков (шт)", width=11, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
-        tk.Label(headers_frame, text="Длительность (мс)", width=16, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
-        tk.Label(headers_frame, text="Пауза в серии (мс)", width=16, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
-        tk.Label(headers_frame, text="Пауза серии (мс)", width=16, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
+        tk.Label(headers_frame, text="Гудков (шт)", width=10, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
+        tk.Label(headers_frame, text="Длительность (мс/с)", width=18, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
+        tk.Label(headers_frame, text="Пауза в серии (мс/с)", width=18, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
+        tk.Label(headers_frame, text="Пауза серий (с/мс)", width=16, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
 
         self.sound_profile_entries = {}
         profiles_list = [("safe", "0: Отсутствие тревог", self.config.safe_sound)] + [
@@ -376,29 +415,29 @@ class ThreatConfigDialog(tk.Toplevel):
             row.pack(fill="x", pady=1)
 
             lbl_color = TEXT_MAIN
-            if "Критическая (Район)" in prof_label:
+            if "Критическая (Район)" in prof_label or "Критическая" in prof_label:
                 lbl_color = "#f87171"
-            elif "Критическая" in prof_label:
+            elif "Опасность" in prof_label or "Потенциальная" in prof_label:
                 lbl_color = "#fb923c"
-            elif "Heartbeat" in prof_label:
+            elif "Heartbeat" in prof_label or "Отсутствие" in prof_label:
                 lbl_color = "#34d399"
 
-            tk.Label(row, text=prof_label, width=36, anchor="w", bg=BG_CARD, fg=lbl_color, font=FONT_REGULAR).pack(side="left")
+            tk.Label(row, text=prof_label, width=34, anchor="w", bg=BG_CARD, fg=lbl_color, font=FONT_REGULAR).pack(side="left")
             tk.Label(row, text=str(p_obj.code), width=5, bg=BG_CARD, fg=TEXT_MUTED, font=FONT_MONO).pack(side="left", padx=2)
 
-            e_cnt = ttk.Entry(row, width=10, font=FONT_MONO)
+            e_cnt = ttk.Entry(row, width=8, font=FONT_MONO)
             e_cnt.insert(0, str(p_obj.beep_count))
             e_cnt.pack(side="left", padx=3)
 
-            e_dur = ttk.Entry(row, width=10, font=FONT_MONO)
+            e_dur = ttk.Entry(row, width=12, font=FONT_MONO)
             e_dur.insert(0, str(p_obj.beep_duration_ms))
             e_dur.pack(side="left", padx=3)
 
-            e_pau = ttk.Entry(row, width=10, font=FONT_MONO)
+            e_pau = ttk.Entry(row, width=12, font=FONT_MONO)
             e_pau.insert(0, str(p_obj.pause_between_ms))
             e_pau.pack(side="left", padx=3)
 
-            e_int = ttk.Entry(row, width=10, font=FONT_MONO)
+            e_int = ttk.Entry(row, width=12, font=FONT_MONO)
             e_int.insert(0, str(p_obj.interval_series_ms))
             e_int.pack(side="left", padx=3)
 
@@ -448,13 +487,15 @@ class ThreatConfigDialog(tk.Toplevel):
             self.config.schedule.start_time = self.entry_sched_start.get().strip()
             self.config.schedule.end_time = self.entry_sched_end.get().strip()
 
-            # Парсинг словаря беспилотников
-            g1_kws = [k.strip().lower() for k in self.txt_drone_g1.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
-            g2_kws = [k.strip().lower() for k in self.txt_drone_g2.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
+            # Парсинг словаря беспилотников (4 группы 0..3)
             g3_kws = [k.strip().lower() for k in self.txt_drone_g3.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
-            self.config.drone_dict.group1_keywords = g1_kws
-            self.config.drone_dict.group2_keywords = g2_kws
+            g2_kws = [k.strip().lower() for k in self.txt_drone_g2.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
+            g1_kws = [k.strip().lower() for k in self.txt_drone_g1.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
+            g0_kws = [k.strip().lower() for k in self.txt_drone_g0.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
             self.config.drone_dict.group3_keywords = g3_kws
+            self.config.drone_dict.group2_keywords = g2_kws
+            self.config.drone_dict.group1_keywords = g1_kws
+            self.config.drone_dict.group0_keywords = g0_kws
 
             for rule in self.config.alarm_rules:
                 inputs = self.rule_inputs[rule.id]
@@ -480,7 +521,11 @@ class ThreatConfigDialog(tk.Toplevel):
             self.config.alarmmap_katottg = self.entry_katottg.get().strip()
             for key, entries in self.sound_profile_entries.items():
                 p_obj = self.config.safe_sound if key == "safe" else next(r.sound for r in self.config.alarm_rules if r.id == key)
-                p_obj.beep_count, p_obj.beep_duration_ms, p_obj.pause_between_ms, p_obj.interval_series_ms = [int(e.get().strip()) for e in entries]
+                e_cnt, e_dur, e_pau, e_int = entries
+                p_obj.beep_count = int(e_cnt.get().strip())
+                p_obj.beep_duration_ms = parse_duration_ms(e_dur.get(), min_ms=10)
+                p_obj.pause_between_ms = parse_duration_ms(e_pau.get(), min_ms=0)
+                p_obj.interval_series_ms = parse_interval_series_ms(e_int.get())
             self._save_heuristics()
             self.config.validate()
 

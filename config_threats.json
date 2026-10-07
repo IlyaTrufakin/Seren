@@ -185,6 +185,7 @@
     "bit_type_drone": 8,
     "bit_no_link": 9,
     "bit_muted_by_schedule": 10,
+    "bit_type_unknown": 11,
     "bit_heartbeat": 15
   },
   "plc_feedback": {
@@ -198,7 +199,7 @@
     "end_time": "02:00"
   },
   "drone_dict": {
-    "group1_keywords": [
+    "group3_keywords": [
       "шахед",
       "шахід",
       "герань",
@@ -230,7 +231,14 @@
       "молнии",
       "молнию"
     ],
-    "group3_keywords": [
+    "group1_keywords": [
+      "суперкам",
+      "зала",
+      "орлан",
+      "разведчик",
+      "розвідник"
+    ],
+    "group0_keywords": [
       "пародия",
       "пародія",
       "фанера",
@@ -262,65 +270,89 @@
       "pause_between_ms": 400,
       "interval_series_ms": 4000
     },
-    "rocket_potential": {
-      "code": 2,
-      "name": "Ракета: Потенциальная",
-      "beep_count": 2,
-      "beep_duration_ms": 800,
-      "pause_between_ms": 600,
-      "interval_series_ms": 8000
-    },
     "kab_district_critical": {
-      "code": 3,
+      "code": 2,
       "name": "КАБ: Критическая (Район)",
       "beep_count": 4,
       "beep_duration_ms": 1000,
       "pause_between_ms": 300,
       "interval_series_ms": 3000
     },
-    "kab_city_critical": {
-      "code": 4,
-      "name": "КАБ: Критическая (Город)",
-      "beep_count": 2,
-      "beep_duration_ms": 1000,
-      "pause_between_ms": 500,
-      "interval_series_ms": 6000
-    },
-    "kab_potential": {
-      "code": 5,
-      "name": "КАБ: Потенциальная",
-      "beep_count": 1,
-      "beep_duration_ms": 800,
-      "pause_between_ms": 500,
-      "interval_series_ms": 10000
-    },
     "drone_g1_district_critical": {
-      "code": 6,
-      "name": "Дрон Гр.1: Критическая (Район)",
+      "code": 3,
+      "name": "Дрон: Критическая (Район)",
       "beep_count": 3,
       "beep_duration_ms": 800,
       "pause_between_ms": 400,
       "interval_series_ms": 4000
     },
+    "unknown_district_critical": {
+      "code": 4,
+      "name": "Неопознанная: Критическая (Район)",
+      "beep_count": 3,
+      "beep_duration_ms": 1000,
+      "pause_between_ms": 400,
+      "interval_series_ms": 4000
+    },
+    "rocket_potential": {
+      "code": 5,
+      "name": "Ракета: Опасность (Город)",
+      "beep_count": 2,
+      "beep_duration_ms": 800,
+      "pause_between_ms": 600,
+      "interval_series_ms": 8000
+    },
+    "kab_city_critical": {
+      "code": 6,
+      "name": "КАБ: Опасность (Город)",
+      "beep_count": 2,
+      "beep_duration_ms": 1000,
+      "pause_between_ms": 500,
+      "interval_series_ms": 6000
+    },
     "drone_g1_city": {
       "code": 7,
-      "name": "Дрон Гр.1: Опасность (Город)",
+      "name": "Дрон: Опасность (Город)",
       "beep_count": 2,
       "beep_duration_ms": 1700,
       "pause_between_ms": 500,
       "interval_series_ms": 7000
     },
-    "drone_g2_tactical": {
+    "unknown_city": {
       "code": 8,
-      "name": "Дрон Гр.2: Тактические",
+      "name": "Неопознанная: Опасность (Город)",
+      "beep_count": 2,
+      "beep_duration_ms": 700,
+      "pause_between_ms": 500,
+      "interval_series_ms": 7000
+    },
+    "rocket_launch": {
+      "code": 9,
+      "name": "Ракета: Пуск / Низкая",
       "beep_count": 1,
-      "beep_duration_ms": 600,
+      "beep_duration_ms": 300,
+      "pause_between_ms": 400,
+      "interval_series_ms": 15000
+    },
+    "kab_potential": {
+      "code": 10,
+      "name": "КАБ: Пуск / Низкая",
+      "beep_count": 1,
+      "beep_duration_ms": 800,
       "pause_between_ms": 500,
       "interval_series_ms": 10000
     },
     "drone_g3_decoy": {
-      "code": 9,
-      "name": "Дрон Гр.3: Ложные цели / Минимальная",
+      "code": 11,
+      "name": "Дрон: Ложные цели / Низкая",
+      "beep_count": 1,
+      "beep_duration_ms": 300,
+      "pause_between_ms": 500,
+      "interval_series_ms": 15000
+    },
+    "unknown_potential": {
+      "code": 12,
+      "name": "Неопознанная: Низкая",
       "beep_count": 1,
       "beep_duration_ms": 300,
       "pause_between_ms": 500,
@@ -425,6 +457,35 @@
       }
     },
     {
+      "id": "critical_unknown",
+      "severity": "critical",
+      "threat_type": "unknown",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "district",
+        "toward_district"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [
+        3
+      ],
+      "sound": {
+        "code": 4,
+        "name": "Критическая — Неопознанная",
+        "beep_count": 3,
+        "beep_duration_ms": 1000,
+        "pause_between_ms": 400,
+        "interval_series_ms": 4000
+      }
+    },
+    {
       "id": "high_rocket",
       "severity": "high",
       "threat_type": "rocket",
@@ -445,7 +506,7 @@
         2
       ],
       "sound": {
-        "code": 4,
+        "code": 5,
         "name": "Высокая — Ракетная",
         "beep_count": 2,
         "beep_duration_ms": 800,
@@ -473,7 +534,7 @@
         2
       ],
       "sound": {
-        "code": 5,
+        "code": 6,
         "name": "Высокая — Бомбовая",
         "beep_count": 2,
         "beep_duration_ms": 1000,
@@ -507,12 +568,41 @@
         2
       ],
       "sound": {
-        "code": 6,
+        "code": 7,
         "name": "Высокая — Дроновая",
         "beep_count": 2,
         "beep_duration_ms": 1700,
         "pause_between_ms": 500,
         "interval_series_ms": 7000
+      }
+    },
+    {
+      "id": "high_unknown",
+      "severity": "high",
+      "threat_type": "unknown",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "city",
+        "toward_city"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [
+        2
+      ],
+      "sound": {
+        "code": 8,
+        "name": "Высокая — Неопознанная",
+        "beep_count": 2,
+        "beep_duration_ms": 700,
+        "pause_between_ms": 400,
+        "interval_series_ms": 8000
       }
     },
     {
@@ -535,7 +625,7 @@
         1
       ],
       "sound": {
-        "code": 7,
+        "code": 9,
         "name": "Низкая — Ракетная",
         "beep_count": 1,
         "beep_duration_ms": 100,
@@ -561,7 +651,7 @@
       ],
       "api_levels": [],
       "sound": {
-        "code": 8,
+        "code": 10,
         "name": "Низкая — Бомбовая",
         "beep_count": 1,
         "beep_duration_ms": 800,
@@ -587,8 +677,36 @@
       ],
       "api_levels": [],
       "sound": {
-        "code": 9,
+        "code": 11,
         "name": "Низкая — Дроновая",
+        "beep_count": 1,
+        "beep_duration_ms": 300,
+        "pause_between_ms": 400,
+        "interval_series_ms": 15000
+      }
+    },
+    {
+      "id": "low_unknown",
+      "severity": "low",
+      "threat_type": "unknown",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "launch"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [
+        1
+      ],
+      "sound": {
+        "code": 12,
+        "name": "Низкая — Неопознанная",
         "beep_count": 1,
         "beep_duration_ms": 300,
         "pause_between_ms": 400,

@@ -1,9 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <ProjectDescriptor xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <ProjectVersion>3.0.0.0</ProjectVersion>
   <ManagementLevel>FunctLevelMan21_0</ManagementLevel>
   <Name>Seren_Alarm</Name>
-  <FullName>D:\Dropbox\ILYA\PROGRAMMING\GCodeConverting\Antigravity\Seren\Seren_Alarm.smbp</FullName>
+  <FullName>C:\Users\trufa\Dropbox\ILYA\PROGRAMMING\GCodeConverting\Antigravity\Seren\Seren_Alarm.smbp</FullName>
   <CurrentCultureName>en-GB</CurrentCultureName>
   <SoftwareConfiguration>
     <Pous>
@@ -337,28 +337,20 @@
             <LadderElements>
               <LadderEntity>
                 <ElementType>NormalContact</ElementType>
-                <Descriptor>%MW0:X15</Descriptor>
-                <Comment />
-                <Symbol>PLC_CONTROL_WORD:X15</Symbol>
+                <Descriptor>%S12</Descriptor>
+                <Comment>The controller is running</Comment>
+                <Symbol>SB_RUNMODE</Symbol>
                 <Row>0</Row>
                 <Column>0</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
               </LadderEntity>
               <LadderEntity>
-                <ElementType>NegatedContact</ElementType>
-                <Descriptor>%M1</Descriptor>
-                <Comment />
-                <Symbol>M_HB_LAST</Symbol>
-                <Row>0</Row>
-                <Column>1</Column>
-                <ChosenConnection>Left, Right</ChosenConnection>
-              </LadderEntity>
-              <LadderEntity>
-                <ElementType>Line</ElementType>
+                <ElementType>Comparison</ElementType>
                 <Descriptor />
                 <Comment />
+                <ComparisonExpression>%MW0 &lt;&gt; %MW15</ComparisonExpression>
                 <Row>0</Row>
-                <Column>2</Column>
+                <Column>1</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
               </LadderEntity>
               <LadderEntity>
@@ -429,11 +421,11 @@
             </LadderElements>
             <InstructionLines>
               <InstructionLineEntity>
-                <InstructionLine>LD  %MW0:X15</InstructionLine>
+                <InstructionLine>LD  %S12</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
-                <InstructionLine>ANDN  %M1</InstructionLine>
+                <InstructionLine>AND [ %MW0 &lt;&gt; %MW15 ]</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
@@ -441,8 +433,8 @@
                 <Comment />
               </InstructionLineEntity>
             </InstructionLines>
-            <Name>HB_Edge_Detect</Name>
-            <MainComment>Detect change in PC heartbeat bit %MW0:X15</MainComment>
+            <Name>HB_Change_Detect</Name>
+            <MainComment>Detect any change in %MW0 from PC</MainComment>
             <Label />
             <IsLadderSelected>true</IsLadderSelected>
           </RungEntity>
@@ -450,9 +442,9 @@
             <LadderElements>
               <LadderEntity>
                 <ElementType>NormalContact</ElementType>
-                <Descriptor>%MW0:X15</Descriptor>
-                <Comment />
-                <Symbol>PLC_CONTROL_WORD:X15</Symbol>
+                <Descriptor>%S12</Descriptor>
+                <Comment>The controller is running</Comment>
+                <Symbol>SB_RUNMODE</Symbol>
                 <Row>0</Row>
                 <Column>0</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
@@ -522,35 +514,27 @@
                 <ChosenConnection>Left, Right</ChosenConnection>
               </LadderEntity>
               <LadderEntity>
-                <ElementType>Line</ElementType>
+                <ElementType>Operation</ElementType>
                 <Descriptor />
                 <Comment />
+                <OperationExpression>%MW15 := %MW0</OperationExpression>
                 <Row>0</Row>
                 <Column>9</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
               </LadderEntity>
-              <LadderEntity>
-                <ElementType>Coil</ElementType>
-                <Descriptor>%M1</Descriptor>
-                <Comment />
-                <Symbol>M_HB_LAST</Symbol>
-                <Row>0</Row>
-                <Column>10</Column>
-                <ChosenConnection>Left</ChosenConnection>
-              </LadderEntity>
             </LadderElements>
             <InstructionLines>
               <InstructionLineEntity>
-                <InstructionLine>LD  %MW0:X15</InstructionLine>
+                <InstructionLine>LD  %S12</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
-                <InstructionLine>ST  %M1</InstructionLine>
+                <InstructionLine>[ %MW15 := %MW0 ]</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
             </InstructionLines>
-            <Name>HB_Remember</Name>
-            <MainComment>Store previous HB bit state</MainComment>
+            <Name>HB_Store</Name>
+            <MainComment>Store last %MW0 value</MainComment>
             <Label />
             <IsLadderSelected>true</IsLadderSelected>
           </RungEntity>
@@ -670,7 +654,7 @@
               </InstructionLineEntity>
             </InstructionLines>
             <Name>Watchdog_Timer</Name>
-            <MainComment>Watchdog: %M0 is 1 when communication is lost (timeout 12s), 0 when OK</MainComment>
+            <MainComment>Watchdog: %M0 = 1 on timeout (alarm), %M0 = 0 when link is OK</MainComment>
             <Label />
             <IsLadderSelected>true</IsLadderSelected>
           </RungEntity>
@@ -771,6 +755,30 @@
                 <Comment />
                 <Row>3</Row>
                 <Column>8</Column>
+                <ChosenConnection>Up, Down, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>VerticalLine</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>4</Row>
+                <Column>8</Column>
+                <ChosenConnection>Up, Down, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>VerticalLine</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>5</Row>
+                <Column>8</Column>
+                <ChosenConnection>Up, Down, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>VerticalLine</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>6</Row>
+                <Column>8</Column>
                 <ChosenConnection>Up, Right</ChosenConnection>
               </LadderEntity>
               <LadderEntity>
@@ -786,7 +794,7 @@
                 <ElementType>Operation</ElementType>
                 <Descriptor />
                 <Comment />
-                <OperationExpression>%MW11 := %MW4 / 100</OperationExpression>
+                <OperationExpression>%MW11 := %MW4 / 10</OperationExpression>
                 <Row>1</Row>
                 <Column>9</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
@@ -795,7 +803,7 @@
                 <ElementType>Operation</ElementType>
                 <Descriptor />
                 <Comment />
-                <OperationExpression>%MW12 := %MW5 / 100</OperationExpression>
+                <OperationExpression>%MW12 := %MW5 / 10</OperationExpression>
                 <Row>2</Row>
                 <Column>9</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
@@ -806,6 +814,33 @@
                 <Comment />
                 <OperationExpression>%MW13 := %MW6 / 1000</OperationExpression>
                 <Row>3</Row>
+                <Column>9</Column>
+                <ChosenConnection>Left, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>Operation</ElementType>
+                <Descriptor />
+                <Comment />
+                <OperationExpression>%TM1.P := %MW11</OperationExpression>
+                <Row>4</Row>
+                <Column>9</Column>
+                <ChosenConnection>Left, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>Operation</ElementType>
+                <Descriptor />
+                <Comment />
+                <OperationExpression>%TM2.P := %MW12</OperationExpression>
+                <Row>5</Row>
+                <Column>9</Column>
+                <ChosenConnection>Left, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>Operation</ElementType>
+                <Descriptor />
+                <Comment />
+                <OperationExpression>%TM3.P := %MW13</OperationExpression>
+                <Row>6</Row>
                 <Column>9</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
               </LadderEntity>
@@ -820,20 +855,32 @@
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
-                <InstructionLine>[ %MW11 := %MW4 / 100 ]</InstructionLine>
+                <InstructionLine>[ %MW11 := %MW4 / 10 ]</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
-                <InstructionLine>[ %MW12 := %MW5 / 100 ]</InstructionLine>
+                <InstructionLine>[ %MW12 := %MW5 / 10 ]</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
                 <InstructionLine>[ %MW13 := %MW6 / 1000 ]</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
+              <InstructionLineEntity>
+                <InstructionLine>[ %TM1.P := %MW11 ]</InstructionLine>
+                <Comment />
+              </InstructionLineEntity>
+              <InstructionLineEntity>
+                <InstructionLine>[ %TM2.P := %MW12 ]</InstructionLine>
+                <Comment />
+              </InstructionLineEntity>
+              <InstructionLineEntity>
+                <InstructionLine>[ %TM3.P := %MW13 ]</InstructionLine>
+                <Comment />
+              </InstructionLineEntity>
             </InstructionLines>
             <Name>Presets_Normal</Name>
-            <MainComment>Calculate active presets from PC registers (%MW3..%MW6)</MainComment>
+            <MainComment>Link OK (%M0=0): Use PC presets %MW3..%MW6</MainComment>
             <Label />
             <IsLadderSelected>true</IsLadderSelected>
           </RungEntity>
@@ -934,6 +981,30 @@
                 <Comment />
                 <Row>3</Row>
                 <Column>8</Column>
+                <ChosenConnection>Up, Down, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>VerticalLine</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>4</Row>
+                <Column>8</Column>
+                <ChosenConnection>Up, Down, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>VerticalLine</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>5</Row>
+                <Column>8</Column>
+                <ChosenConnection>Up, Down, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>VerticalLine</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>6</Row>
+                <Column>8</Column>
                 <ChosenConnection>Up, Right</ChosenConnection>
               </LadderEntity>
               <LadderEntity>
@@ -949,7 +1020,7 @@
                 <ElementType>Operation</ElementType>
                 <Descriptor />
                 <Comment />
-                <OperationExpression>%MW11 := 2</OperationExpression>
+                <OperationExpression>%MW11 := 20</OperationExpression>
                 <Row>1</Row>
                 <Column>9</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
@@ -958,7 +1029,7 @@
                 <ElementType>Operation</ElementType>
                 <Descriptor />
                 <Comment />
-                <OperationExpression>%MW12 := 3</OperationExpression>
+                <OperationExpression>%MW12 := 30</OperationExpression>
                 <Row>2</Row>
                 <Column>9</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
@@ -969,6 +1040,33 @@
                 <Comment />
                 <OperationExpression>%MW13 := 5</OperationExpression>
                 <Row>3</Row>
+                <Column>9</Column>
+                <ChosenConnection>Left, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>Operation</ElementType>
+                <Descriptor />
+                <Comment />
+                <OperationExpression>%TM1.P := 20</OperationExpression>
+                <Row>4</Row>
+                <Column>9</Column>
+                <ChosenConnection>Left, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>Operation</ElementType>
+                <Descriptor />
+                <Comment />
+                <OperationExpression>%TM2.P := 30</OperationExpression>
+                <Row>5</Row>
+                <Column>9</Column>
+                <ChosenConnection>Left, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>Operation</ElementType>
+                <Descriptor />
+                <Comment />
+                <OperationExpression>%TM3.P := 5</OperationExpression>
+                <Row>6</Row>
                 <Column>9</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
               </LadderEntity>
@@ -983,20 +1081,32 @@
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
-                <InstructionLine>[ %MW11 := 2 ]</InstructionLine>
+                <InstructionLine>[ %MW11 := 20 ]</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
-                <InstructionLine>[ %MW12 := 3 ]</InstructionLine>
+                <InstructionLine>[ %MW12 := 30 ]</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
                 <InstructionLine>[ %MW13 := 5 ]</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
+              <InstructionLineEntity>
+                <InstructionLine>[ %TM1.P := 20 ]</InstructionLine>
+                <Comment />
+              </InstructionLineEntity>
+              <InstructionLineEntity>
+                <InstructionLine>[ %TM2.P := 30 ]</InstructionLine>
+                <Comment />
+              </InstructionLineEntity>
+              <InstructionLineEntity>
+                <InstructionLine>[ %TM3.P := 5 ]</InstructionLine>
+                <Comment />
+              </InstructionLineEntity>
             </InstructionLines>
             <Name>Presets_Emergency</Name>
-            <MainComment>Autonomous fallback alarm: 2 beeps (200ms/300ms) every 5s on comm loss</MainComment>
+            <MainComment>Link LOST (%M0=1): Fallback alarm (2 beeps, 200ms/300ms, 5s interval)</MainComment>
             <Label />
             <IsLadderSelected>true</IsLadderSelected>
           </RungEntity>
@@ -1510,6 +1620,38 @@
                 <ChosenConnection>Left, Right</ChosenConnection>
               </LadderEntity>
               <LadderEntity>
+                <ElementType>Line</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>0</Row>
+                <Column>7</Column>
+                <ChosenConnection>Left, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>Line</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>0</Row>
+                <Column>8</Column>
+                <ChosenConnection>Down, Left, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>VerticalLine</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>1</Row>
+                <Column>8</Column>
+                <ChosenConnection>Up, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
+                <ElementType>Line</ElementType>
+                <Descriptor />
+                <Comment />
+                <Row>0</Row>
+                <Column>9</Column>
+                <ChosenConnection>Left, Right</ChosenConnection>
+              </LadderEntity>
+              <LadderEntity>
                 <ElementType>SetCoil</ElementType>
                 <Descriptor>%M13</Descriptor>
                 <Comment />
@@ -1519,15 +1661,11 @@
                 <ChosenConnection>Left</ChosenConnection>
               </LadderEntity>
               <LadderEntity>
-                <ElementType>Comparison</ElementType>
-                <ComparisonExpression>%MW14 := 0</ComparisonExpression>
-                <Row>0</Row>
-                <Column>7</Column>
-                <ChosenConnection>Left, Right</ChosenConnection>
-              </LadderEntity>
-              <LadderEntity>
-                <ElementType>Line</ElementType>
-                <Row>0</Row>
+                <ElementType>Operation</ElementType>
+                <Descriptor />
+                <Comment />
+                <OperationExpression>%MW14 := 0</OperationExpression>
+                <Row>1</Row>
                 <Column>9</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
               </LadderEntity>
@@ -1542,11 +1680,11 @@
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
-                <InstructionLine>OPER [ %MW14 := 0 ]</InstructionLine>
+                <InstructionLine>S  %M13</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
               <InstructionLineEntity>
-                <InstructionLine>S  %M13</InstructionLine>
+                <InstructionLine>[ %MW14 := 0 ]</InstructionLine>
                 <Comment />
               </InstructionLineEntity>
             </InstructionLines>
@@ -3333,19 +3471,19 @@
       <TimerTM>
         <Address>%TM1</Address>
         <Index>1</Index>
-        <Preset>2</Preset>
-        <Base>OneHundredMilliSeconds</Base>
+        <Preset>20</Preset>
+        <Base>TenMilliSeconds</Base>
       </TimerTM>
       <TimerTM>
         <Address>%TM2</Address>
         <Index>2</Index>
-        <Preset>3</Preset>
-        <Base>OneHundredMilliSeconds</Base>
+        <Preset>30</Preset>
+        <Base>TenMilliSeconds</Base>
       </TimerTM>
       <TimerTM>
         <Address>%TM3</Address>
         <Index>3</Index>
-        <Preset>30</Preset>
+        <Preset>5</Preset>
         <Base>OneSecond</Base>
       </TimerTM>
     </Timers>
@@ -3384,8 +3522,8 @@
       <AutoSaveRamOnEeprom>true</AutoSaveRamOnEeprom>
       <WatchdogPeriod>250</WatchdogPeriod>
     </CpuBehavior>
-    <InstListBufferSize>20260</InstListBufferSize>
-    <ProgramBufferSize>162220</ProgramBufferSize>
+    <InstListBufferSize>20257</InstListBufferSize>
+    <ProgramBufferSize>162150</ProgramBufferSize>
     <TraceTimeBase>Time5Sec</TraceTimeBase>
     <UserFunctionPous />
     <UserFunctionBlockPous />

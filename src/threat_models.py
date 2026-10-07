@@ -20,57 +20,77 @@ class SoundProfilesConfig:
     safe_heartbeat: SoundProfile = field(default_factory=lambda: SoundProfile(
         code=0, name="Норма (Heartbeat)", beep_count=1, beep_duration_ms=200, pause_between_ms=0, interval_series_ms=30000
     ))
-    # 1: Ракета: Критическая для города
+    # 1: Ракета: Критическая для района
     rocket_critical: SoundProfile = field(default_factory=lambda: SoundProfile(
         code=1, name="Ракета: Критическая", beep_count=3, beep_duration_ms=1200, pause_between_ms=400, interval_series_ms=4000
     ))
-    # 2: Ракета: Потенциальная для города
-    rocket_potential: SoundProfile = field(default_factory=lambda: SoundProfile(
-        code=2, name="Ракета: Потенциальная", beep_count=2, beep_duration_ms=800, pause_between_ms=600, interval_series_ms=8000
-    ))
-    # 3: КАБ: Критическая для района объекта
+    # 2: КАБ: Критическая для района
     kab_district_critical: SoundProfile = field(default_factory=lambda: SoundProfile(
-        code=3, name="КАБ: Критическая (Район)", beep_count=4, beep_duration_ms=1000, pause_between_ms=300, interval_series_ms=3000
+        code=2, name="КАБ: Критическая (Район)", beep_count=3, beep_duration_ms=1000, pause_between_ms=300, interval_series_ms=3000
     ))
-    # 4: КАБ: Критическая для города
-    kab_city_critical: SoundProfile = field(default_factory=lambda: SoundProfile(
-        code=4, name="КАБ: Критическая (Город)", beep_count=2, beep_duration_ms=1000, pause_between_ms=500, interval_series_ms=6000
-    ))
-    # 5: КАБ: Потенциальная
-    kab_potential: SoundProfile = field(default_factory=lambda: SoundProfile(
-        code=5, name="КАБ: Потенциальная", beep_count=1, beep_duration_ms=800, pause_between_ms=500, interval_series_ms=10000
-    ))
-    # 6: Дроны Группа 1 (Тяжелые/ударные): Критическая для района
+    # 3: Дроны Группа 3/2 (Ударные): Критическая для района
     drone_g1_district_critical: SoundProfile = field(default_factory=lambda: SoundProfile(
-        code=6, name="Дрон Гр.1: Критическая (Район)", beep_count=3, beep_duration_ms=800, pause_between_ms=400, interval_series_ms=4000
+        code=3, name="Дрон: Критическая (Район)", beep_count=3, beep_duration_ms=800, pause_between_ms=400, interval_series_ms=4000
     ))
-    # 7: Дроны Группа 1 (Тяжелые/ударные): Город
+    # 4: Неопознанная: Критическая для района
+    unknown_district_critical: SoundProfile = field(default_factory=lambda: SoundProfile(
+        code=4, name="Неопознанная: Критическая (Район)", beep_count=3, beep_duration_ms=1000, pause_between_ms=400, interval_series_ms=4000
+    ))
+    # 5: Ракета: Опасность для города
+    rocket_potential: SoundProfile = field(default_factory=lambda: SoundProfile(
+        code=5, name="Ракета: Опасность (Город)", beep_count=2, beep_duration_ms=800, pause_between_ms=600, interval_series_ms=8000
+    ))
+    # 6: КАБ: Опасность для города
+    kab_city_critical: SoundProfile = field(default_factory=lambda: SoundProfile(
+        code=6, name="КАБ: Опасность (Город)", beep_count=2, beep_duration_ms=800, pause_between_ms=500, interval_series_ms=6000
+    ))
+    # 7: Дроны: Опасность для города
     drone_g1_city: SoundProfile = field(default_factory=lambda: SoundProfile(
-        code=7, name="Дрон Гр.1: Опасность (Город)", beep_count=2, beep_duration_ms=700, pause_between_ms=500, interval_series_ms=7000
+        code=7, name="Дрон: Опасность (Город)", beep_count=2, beep_duration_ms=700, pause_between_ms=500, interval_series_ms=7000
     ))
-    # 8: Дроны Группа 2 (Тактические/разведчики): Район/Город
-    drone_g2_tactical: SoundProfile = field(default_factory=lambda: SoundProfile(
-        code=8, name="Дрон Гр.2: Тактические", beep_count=1, beep_duration_ms=600, pause_between_ms=500, interval_series_ms=10000
+    # 8: Неопознанная: Опасность для города
+    unknown_city: SoundProfile = field(default_factory=lambda: SoundProfile(
+        code=8, name="Неопознанная: Опасность (Город)", beep_count=2, beep_duration_ms=700, pause_between_ms=500, interval_series_ms=7000
     ))
-    # 9: Дроны Группа 3 (Ложные цели/фанера/имитаторы) / Мин. тревога
+    # 9: Ракета: Пуск / Область
+    rocket_launch: SoundProfile = field(default_factory=lambda: SoundProfile(
+        code=9, name="Ракета: Пуск / Низкая", beep_count=1, beep_duration_ms=300, pause_between_ms=400, interval_series_ms=15000
+    ))
+    # 10: КАБ: Пуск / Область
+    kab_potential: SoundProfile = field(default_factory=lambda: SoundProfile(
+        code=10, name="КАБ: Пуск / Низкая", beep_count=1, beep_duration_ms=300, pause_between_ms=400, interval_series_ms=15000
+    ))
+    # 11: Дроны: Низкая / Ложные цели
     drone_g3_decoy: SoundProfile = field(default_factory=lambda: SoundProfile(
-        code=9, name="Дрон Гр.3: Ложные цели / Минимальная", beep_count=1, beep_duration_ms=300, pause_between_ms=500, interval_series_ms=15000
+        code=11, name="Дрон: Ложные цели / Низкая", beep_count=1, beep_duration_ms=300, pause_between_ms=500, interval_series_ms=15000
+    ))
+    # 12: Неопознанная: Низкая опасность
+    unknown_potential: SoundProfile = field(default_factory=lambda: SoundProfile(
+        code=12, name="Неопознанная: Низкая", beep_count=1, beep_duration_ms=300, pause_between_ms=500, interval_series_ms=15000
     ))
 
 @dataclass
 class DroneDictionaryConfig:
-    """Словарь названий беспилотников, разбитый на 3 группы опасности."""
-    # Группа 1: Высокая опасность (Тяжелые камикадзе с мощной БЧ)
-    group1_keywords: List[str] = field(default_factory=lambda: [
-        "шахед", "шахід", "герань", "гербера", "италмас", "ударный бпла", "дрон-камикадзе", "ударні бпла"
-    ])
-    # Группа 2: Средняя опасность (Тактические ударные, FPV, разведчики)
-    group2_keywords: List[str] = field(default_factory=lambda: [
-        "молния", "блискавка", "ланцет", "суперкам", "зала", "орлан", "fpv", "фпв", "разведчик", "розвідник"
-    ])
-    # Группа 3: Низкая опасность (Ложные цели, имитаторы, легкие приманки без БЧ)
+    """Словарь названий беспилотников, разбитый на 4 группы опасности (0..3).
+    0 = самая низкая опасность, 3 = самая высокая опасность.
+    """
+    # Группа 3: Самая высокая опасность (Тяжелые ударные камикадзе с мощной БЧ)
     group3_keywords: List[str] = field(default_factory=lambda: [
-        "пародия", "пародія", "фанера", "фальш-цель", "фальш-ціль", "фальш", "имитатор", "імітатор", "приманка", "мишень", "ложная цель", "без бч"
+        "шахед", "шахід", "герань", "гербера", "италмас", "дрон-камикадзе",
+        "ударный бпла", "ударні бпла", "ударний бпла", "ударний", "ударный", "ударні", "ударных", "ударних"
+    ])
+    # Группа 2: Средняя опасность (Тактические ударные, FPV)
+    group2_keywords: List[str] = field(default_factory=lambda: [
+        "молния", "молнія", "блискавка", "ланцет", "fpv", "фпв", "молнію", "молнії", "молнии", "молнию"
+    ])
+    # Группа 1: Низкая опасность (Разведчики)
+    group1_keywords: List[str] = field(default_factory=lambda: [
+        "суперкам", "зала", "орлан", "разведчик", "розвідник"
+    ])
+    # Группа 0: Самая низкая опасность (Ложные цели, имитаторы, приманки без БЧ, неопознанные / общий БпЛА)
+    group0_keywords: List[str] = field(default_factory=lambda: [
+        "пародия", "пародія", "фанера", "фальш-цель", "фальш-ціль", "фальш", "имитатор", "імітатор",
+        "приманка", "мишень", "ложная цель", "без бч", "бпла", "дрон", "мопед"
     ])
 
 @dataclass
@@ -99,7 +119,8 @@ class ThreatStatus:
     has_rocket: bool = False
     has_kab: bool = False
     has_drone: bool = False
-    drone_group: int = 0         # 0: нет, 1: Тяжелые, 2: Тактические, 3: Ложные цели
+    has_unknown: bool = False
+    drone_group: int = 0         # 0: Ложные/не определен, 1: Разведчики, 2: Тактические, 3: Тяжелые
     matched_drone_name: str = "" # Распознанное название БпЛА
     no_data_link: bool = False
     is_muted: bool = False       # Сигналы тревог на ПЛК подавлены по расписанию
@@ -136,10 +157,10 @@ class ThreatStatus:
     tg_mode: str = "web"
     tg_channels: List[str] = field(default_factory=list)
     tg_last_msg_time: float = 0.0
-    tg_city_threat: str = ""          # "rocket", "kab", "drone", ""
+    tg_city_threat: str = ""          # "rocket", "kab", "drone", "unknown", ""
     tg_city_level: int = 0            # 0, 2, 4
     tg_city_ttl_remain_s: int = 0     # оставшееся время действия угрозы городу
-    tg_district_threat: str = ""      # "rocket", "kab", "drone", ""
+    tg_district_threat: str = ""      # "rocket", "kab", "drone", "unknown", ""
     tg_district_level: int = 0        # 0, 3, 5
     tg_district_landmarks: str = ""   # "Одесская, Новые дома"
     tg_district_ttl_remain_s: int = 0 # оставшееся время действия угрозы району
@@ -160,7 +181,7 @@ class ThreatStatus:
 
 
 SEVERITIES = {"critical": "Критическая", "high": "Высокая", "low": "Низкая"}
-THREAT_TYPES = {"rocket": "Ракетная", "kab": "Бомбовая", "drone": "Дроновая"}
+THREAT_TYPES = {"rocket": "Ракетная", "kab": "Бомбовая", "drone": "Дроновая", "unknown": "Неопознанная"}
 APPROACHES = {"launch": "Пуск", "city": "Над городом",
               "district": "Над районом", "toward_district": "Направление на район",
               "toward_city": "Направление на город"}
@@ -242,14 +263,19 @@ def default_alarm_rules():
     ]:
         for kind in THREAT_TYPES:
             code = len(rules) + 1
+            drone_groups = [2, 3] if degree == "critical" else [0, 1, 2, 3]
+            api_type_map = {
+                "rocket": ["air"],
+                "kab": ["kab-bombs"],
+                "drone": ["fight-drones"],
+                "unknown": ["air"]
+            }
             rules.append(AlarmRule(
                 id=f"{degree}_{kind}", severity=degree, threat_type=kind,
-                approaches=(list(approaches)+["city", "toward_city"]
-                            if degree == "critical" and kind in ("rocket", "kab") else list(approaches)),
-                drone_groups=(([0, 1] if degree == "critical" else [0, 1, 2, 3]) if kind == "drone" else []),
-                api_types={"rocket": ["air"], "kab": ["kab-bombs"],
-                           "drone": ["fight-drones"]}[kind],
-                api_levels=(levels if kind == "rocket" else {"critical": [2], "high": [1], "low": []}[degree]),
+                approaches=list(approaches),
+                drone_groups=(drone_groups if kind == "drone" else []),
+                api_types=api_type_map[kind],
+                api_levels=(levels if kind in ("rocket", "unknown") else {"critical": [2], "high": [1], "low": []}[degree]),
                 sound=SoundProfile(code, f"{SEVERITIES[degree]} — {THREAT_TYPES[kind]}",
                                    {"critical": 3, "high": 2, "low": 1}[degree],
                                    {"critical": 1000, "high": 700, "low": 300}[degree],
@@ -337,6 +363,7 @@ class BitMappingConfig:
     bit_type_drone: int = 8              # Бит 8: Тип угрозы: Дрон / Шахед
     bit_no_link: int = 9                 # Бит 9: Нет связи с источниками
     bit_muted_by_schedule: int = 10      # Бит 10: Режим тишины по расписанию (тревоги на ПЛК подавлены)
+    bit_type_unknown: int = 11           # Бит 11: Тип угрозы: Неопознанная
     bit_heartbeat: int = 15              # Бит 15: Heartbeat (жизнь ПО)
 
 @dataclass
@@ -439,9 +466,16 @@ class ThreatSystemConfig:
 
             if "drone_dict" in d:
                 dd = d["drone_dict"]
-                cfg.drone_dict.group1_keywords = dd.get("group1_keywords", cfg.drone_dict.group1_keywords)
-                cfg.drone_dict.group2_keywords = dd.get("group2_keywords", cfg.drone_dict.group2_keywords)
-                cfg.drone_dict.group3_keywords = dd.get("group3_keywords", cfg.drone_dict.group3_keywords)
+                if "group0_keywords" in dd:
+                    cfg.drone_dict.group0_keywords = dd.get("group0_keywords", cfg.drone_dict.group0_keywords)
+                    cfg.drone_dict.group1_keywords = dd.get("group1_keywords", cfg.drone_dict.group1_keywords)
+                    cfg.drone_dict.group2_keywords = dd.get("group2_keywords", cfg.drone_dict.group2_keywords)
+                    cfg.drone_dict.group3_keywords = dd.get("group3_keywords", cfg.drone_dict.group3_keywords)
+                else:
+                    cfg.drone_dict.group3_keywords = dd.get("group1_keywords", cfg.drone_dict.group3_keywords)
+                    cfg.drone_dict.group2_keywords = dd.get("group2_keywords", cfg.drone_dict.group2_keywords)
+                    cfg.drone_dict.group1_keywords = ["суперкам", "зала", "орлан", "разведчик", "розвідник"]
+                    cfg.drone_dict.group0_keywords = dd.get("group3_keywords", cfg.drone_dict.group0_keywords)
 
             if "sound_profiles" in d:
                 sp_data = d["sound_profiles"]
@@ -458,24 +492,36 @@ class ThreatSystemConfig:
                         p_obj.pause_between_ms = int(p_dict.get("pause_between_ms", p_obj.pause_between_ms))
                         p_obj.interval_series_ms = int(p_dict.get("interval_series_ms", p_obj.interval_series_ms))
             if "alarm_rules" in d:
-                cfg.alarm_rules = []
+                existing_rules = {}
                 for data in d["alarm_rules"]:
                     data = dict(data)
                     data["sound"] = SoundProfile(**data["sound"])
-                    cfg.alarm_rules.append(AlarmRule(**data))
+                    existing_rules[data["id"]] = AlarmRule(**data)
+                defs = default_alarm_rules()
+                cfg.alarm_rules = []
+                for def_rule in defs:
+                    if def_rule.id in existing_rules:
+                        r = existing_rules[def_rule.id]
+                        r.sound.code = def_rule.sound.code
+                        cfg.alarm_rules.append(r)
+                    else:
+                        cfg.alarm_rules.append(def_rule)
             else:
-                # Сохраняем прежние параметры звука при переходе на девять правил.
                 from copy import deepcopy
                 mapping = {
                     "critical_rocket": "rocket_critical", "high_rocket": "rocket_potential",
-                    "low_rocket": "rocket_potential", "critical_kab": "kab_district_critical",
+                    "low_rocket": "rocket_launch", "critical_kab": "kab_district_critical",
                     "high_kab": "kab_city_critical", "low_kab": "kab_potential",
                     "critical_drone": "drone_g1_district_critical", "high_drone": "drone_g1_city",
-                    "low_drone": "drone_g3_decoy"}
+                    "low_drone": "drone_g3_decoy",
+                    "critical_unknown": "unknown_district_critical", "high_unknown": "unknown_city",
+                    "low_unknown": "unknown_potential"
+                }
                 for rule in cfg.alarm_rules:
-                    old = deepcopy(getattr(cfg.sound_profiles, mapping[rule.id]))
-                    old.code, old.name = rule.sound.code, rule.sound.name
-                    rule.sound = old
+                    if rule.id in mapping and hasattr(cfg.sound_profiles, mapping[rule.id]):
+                        old = deepcopy(getattr(cfg.sound_profiles, mapping[rule.id]))
+                        old.code, old.name = rule.sound.code, rule.sound.name
+                        rule.sound = old
             cfg.safe_sound = SoundProfile(**d["safe_sound"]) if "safe_sound" in d else cfg.sound_profiles.safe_heartbeat
             cfg.safe_sound.code = 0
             cfg.validate()
@@ -486,23 +532,24 @@ class ThreatSystemConfig:
     def validate(self):
         import re
         normalized_channels = [c.strip().replace("https://t.me/", "").lstrip("@").strip("/").lower()
-                               for c in self.telegram_channels]
+                                for c in self.telegram_channels]
         if any(not re.fullmatch(r"[a-z0-9_]+", c) for c in normalized_channels):
             raise ValueError("Укажите имена Telegram-каналов без ссылок на сообщения")
         if self.telegram_enabled and not normalized_channels:
             raise ValueError("Для Telegram нужно указать хотя бы один канал")
         if self.telegram_enabled and self.telegram_mode == "telethon" and (not self.telegram_api_id or not self.telegram_api_hash):
             raise ValueError("Для Telethon нужны API ID и API Hash")
-        if len(self.alarm_rules) != 9 or {r.id for r in self.alarm_rules} != {
+        total_rules = len(SEVERITIES) * len(THREAT_TYPES)
+        if len(self.alarm_rules) != total_rules or {r.id for r in self.alarm_rules} != {
                 f"{degree}_{kind}" for degree in SEVERITIES for kind in THREAT_TYPES}:
-            raise ValueError("Требуются все девять уникальных правил тревоги")
+            raise ValueError(f"Требуются все {total_rules} уникальных правил тревоги")
         for rule in self.alarm_rules:
             if rule.id != f"{rule.severity}_{rule.threat_type}":
                 raise ValueError("Несогласованное название правила")
             if not set(rule.approaches) <= set(APPROACHES):
                 raise ValueError("Неизвестная степень приближения")
             if not set(rule.drone_groups) <= {0, 1, 2, 3}:
-                raise ValueError("Группа дрона: 0 (неизвестна), 1, 2 или 3")
+                raise ValueError("Группа дрона: 0 (неизвестна/ложные), 1, 2 или 3")
             if any(not isinstance(n, int) or n < 0 for n in rule.api_levels):
                 raise ValueError("Уровни API должны быть неотрицательными целыми")
             if any(src != "alarmmap" and not re.fullmatch(r"telegram:(?:\*|[A-Za-z0-9_]+)", src) for src in rule.sources):
@@ -551,13 +598,15 @@ class ThreatSystemConfig:
                    [p.code, p.beep_count, p.beep_duration_ms, p.pause_between_ms, p.interval_series_ms]):
                 raise ValueError("Параметры звука должны быть в диапазоне 0..65535")
             # В ПЛК время импульса/паузы хранится в шагах 10 мс (%TM1, %TM2 TimeBase: TenMilliSeconds), серии — 1 с (%TM3).
+            if p.beep_count and p.beep_duration_ms < 10:
+                raise ValueError(f"Минимальная длительность гудка: 10 мс (профиль {p.name})")
             if p.beep_duration_ms % 10 or p.pause_between_ms % 10 or p.interval_series_ms % 1000:
                 raise ValueError("Длительность/пауза: шаг 10 мс; интервал серий: шаг 1000 мс")
             if p.beep_count and (not p.beep_duration_ms or not p.interval_series_ms):
                 raise ValueError("Для включенного звука задайте длительность и интервал")
         codes = [r.sound.code for r in self.alarm_rules]
-        if set(codes) != set(range(1, 10)) or self.safe_sound.code != 0:
-            raise ValueError("Коды тревог: 1..9; отсутствия тревог: 0")
+        if set(codes) != set(range(1, len(self.alarm_rules) + 1)) or self.safe_sound.code != 0:
+            raise ValueError(f"Коды тревог: 1..{len(self.alarm_rules)}; отсутствия тревог: 0")
 
     def save(self, path: str = "config_threats.json") -> bool:
         """Атомарное сохранение всех настроек; при ошибке исходный файл сохраняется."""

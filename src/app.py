@@ -117,6 +117,7 @@ class ModbusApp(tk.Tk):
         self.var_badge_rocket = tk.StringVar(value="")
         self.var_badge_kab = tk.StringVar(value="")
         self.var_badge_drone = tk.StringVar(value="")
+        self.var_badge_unknown = tk.StringVar(value="")
         self.var_badge_muted = tk.StringVar(value="")
         self.var_badge_plc_sw = tk.StringVar(value="")
 
@@ -346,6 +347,7 @@ class ModbusApp(tk.Tk):
         self.lbl_badge_rocket = tk.Label(self.badge_box, textvariable=self.var_badge_rocket, font=FONT_BOLD, bg="#7f1d1d", fg="#fca5a5", padx=6, pady=2)
         self.lbl_badge_kab = tk.Label(self.badge_box, textvariable=self.var_badge_kab, font=FONT_BOLD, bg="#78350f", fg="#fcd34d", padx=6, pady=2)
         self.lbl_badge_drone = tk.Label(self.badge_box, textvariable=self.var_badge_drone, font=FONT_BOLD, bg="#312e81", fg="#a5b4fc", padx=6, pady=2)
+        self.lbl_badge_unknown = tk.Label(self.badge_box, textvariable=self.var_badge_unknown, font=FONT_BOLD, bg="#581c87", fg="#d8b4fe", padx=6, pady=2)
         self.lbl_badge_muted = tk.Label(self.badge_box, textvariable=self.var_badge_muted, font=FONT_BOLD, bg="#475569", fg="#e2e8f0", padx=6, pady=2)
         self.lbl_badge_plc_sw = tk.Label(self.badge_box, textvariable=self.var_badge_plc_sw, font=FONT_BOLD, bg="#374151", fg="#9ca3af", padx=6, pady=2)
 
@@ -892,6 +894,12 @@ class ModbusApp(tk.Tk):
             self.lbl_badge_drone.pack(side="right", padx=2)
         else:
             self.lbl_badge_drone.pack_forget()
+
+        if getattr(st, 'has_unknown', False):
+            self.var_badge_unknown.set("❓ НЕОПОЗНАННАЯ")
+            self.lbl_badge_unknown.pack(side="right", padx=2)
+        else:
+            self.lbl_badge_unknown.pack_forget()
 
         # Бейдж тихого часа
         if st.is_muted:

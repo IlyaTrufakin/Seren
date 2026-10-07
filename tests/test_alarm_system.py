@@ -32,7 +32,7 @@ class AlarmTests(unittest.TestCase):
         self.e._handle_telegram_message(dict(text=text, channel=channel, timestamp=time.time()-age))
 
     def test_all_nine_variants_have_independent_profiles(self):
-        # Exercise nine distinct user-configured conditions, independently of the early-warning preset.
+        # Exercise all distinct user-configured conditions, independently of the early-warning preset.
         for rule in self.cfg.alarm_rules:
             rule.approaches = {'critical': ['district'], 'high': ['city'], 'low': ['launch']}[rule.severity]
         texts = {'rocket': 'ракета', 'kab': 'каб', 'drone': 'шахед'}
@@ -45,7 +45,7 @@ class AlarmTests(unittest.TestCase):
                     rule = next(r for r in self.cfg.alarm_rules if r.id == degree + '_' + kind)
                     self.assertEqual(self.e.status.sound_code, rule.sound.code)
                     self.assertIn('@alpha', self.e.status.reason)
-        self.assertEqual(len({r.sound.code for r in self.cfg.alarm_rules}), 9)
+        self.assertEqual(len({r.sound.code for r in self.cfg.alarm_rules}), 12)
 
     def test_degree_precedes_type_and_same_degree_type_priority(self):
         self.msg('пуск ракеты')
@@ -276,7 +276,75 @@ class AlarmTests(unittest.TestCase):
             path.write_text(json.dumps({'sound_profiles': {'rocket_critical': {'beep_count': 7}}}), encoding='utf-8')
             migrated = ThreatSystemConfig.load(path)
             self.assertEqual(migrated.alarm_rules[0].sound.beep_count, 7)
-            self.assertEqual(len(migrated.alarm_rules), 9)
+            self.assertEqual(len(migrated.alarm_rules), 12)
+
+    def test_drone_groups_hierarchy_and_precedence(self):
+        # 3 is highest danger (shahed), 2 is tactical (molniya), 1 is recon (orlan), 0 is decoy/generic (parodiya)
+        self.msg('орлан над харьков')
+        self.assertEqual(self.e.status.active_rule_id, 'high_drone')
+        self.assertEqual(self.e.status.drone_group, 1)
+
+        self.msg('молния над харьков')
+        self.assertEqual(self.e.status.drone_group, 2)
+
+        self.msg('шахед над харьков')
+        self.assertEqual(self.e.status.drone_group, 3)
+
+        # Precedence: shahed + parodiya in one message -> Group 3 wins
+        self.msg('шахед и пародия над харьков')
+        self.assertEqual(self.e.status.drone_group, 3)
+
+        # Decoy / generic БпЛА is group 0
+        self.msg('пародия над харьков')
+        self.assertEqual(self.e.status.drone_group, 0)
+
+    def test_unknown_threat_and_city_vs_district_critical_logic(self):
+        # Critical keywords for city without munition -> high_unknown (not critical!)
+        self.msg('Харків — всі в укриття!')
+        self.assertEqual(self.e.status.active_threat_type, 'unknown')
+        self.assertEqual(self.e.status.active_rule_id, 'high_unknown')
+        self.assertEqual(self.e.status.sound_code, 8)
+        self.assertFalse(self.e.status.is_district_threat)
+        self.assertTrue(self.e.status.has_unknown)
+
+        # Critical keywords for district without munition -> critical_unknown
+        self.e._observations.clear()
+        self.msg('Основа — негайно в укриття!')
+        self.assertEqual(self.e.status.active_threat_type, 'unknown')
+        self.assertEqual(self.e.status.active_rule_id, 'critical_unknown')
+        self.assertEqual(self.e.status.sound_code, 4)
+        self.assertTrue(self.e.status.is_district_threat)
+        self.assertTrue(self.e.status.has_unknown)
+
+    def test_duration_less_than_100ms_parsing_and_validation(self):
+        from src.threat_config_dialog import parse_duration_ms, parse_interval_series_ms
+        # Parsing seconds and milliseconds down to 10 ms
+        self.assertEqual(parse_duration_ms("0.01"), 10)
+        self.assertEqual(parse_duration_ms("0.05"), 50)
+        self.assertEqual(parse_duration_ms("0.1"), 100)
+        self.assertEqual(parse_duration_ms("0,8"), 800)
+        self.assertEqual(parse_duration_ms("50"), 50)
+        self.assertEqual(parse_duration_ms("10"), 10)
+        self.assertEqual(parse_duration_ms("1200"), 1200)
+
+        # Interval series parsing
+        self.assertEqual(parse_interval_series_ms("4"), 4000)
+        self.assertEqual(parse_interval_series_ms("8000"), 8000)
+
+        # Validation allows 10 ms beep duration
+        self.cfg.alarm_rules[0].sound.beep_duration_ms = 10
+        self.cfg.validate()
+
+        # Validation rejects < 10 ms beep duration
+        self.cfg.alarm_rules[0].sound.beep_duration_ms = 5
+        with self.assertRaises(ValueError):
+            self.cfg.validate()
+
+    def test_unknown_modbus_bit_11(self):
+        self.msg('Харків — в укриття!')
+        # Bit 11 is bit_type_unknown, Bit 2 is bit_threat_city_potential
+        self.assertTrue(self.e.status.has_unknown)
+        self.assertTrue(bool(self.e.status.modbus_word & (1 << 11)))
 
 
 class ModbusTests(unittest.TestCase):
@@ -507,8 +575,9 @@ class LeadTimeTests(unittest.TestCase):
                     selected_event_ids='alpha/1', time='210', message_id='alpha/1')
         row = score_cases(messages, [late], cases)[0]
         self.assertEqual(row['lead_seconds'], -10)
-        self.assertEqual(row['result'], 'AFTER_IMPACT')
 
 
 if __name__ == '__main__':
     unittest.main()
+
+

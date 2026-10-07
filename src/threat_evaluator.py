@@ -347,6 +347,37 @@ class ThreatEvaluator:
                 kinds.append('kab')
             if name:
                 kinds.append('drone')
+
+            # 100% guarantee trigger phrases: Call to shelter & Attack heading to city/district
+            shelter_keywords = getattr(self.config.district, 'critical_alert_keywords', []) or [
+                'в укриття', 'в укрытие', 'всі в укриття', 'все в укрытие',
+                'негайно в укриття', 'терміново в укриття', 'срочно в укрытие', 'немедленно в укрытие',
+                'перебувайте в укриттях', 'перебувати в укриттях', 'находитесь в укрытиях', 'находиться в укрытиях',
+                'в безпечні місця', 'в безопасные места', 'в безпечне місце', 'в безопасное место', 'укриття'
+            ]
+            has_shelter = any(k.strip() and k.strip().lower() in lower for k in shelter_keywords)
+
+            city_approach_phrases = [
+                'на місто', 'на город', 'курс на місто', 'курс на город', 'напрямок на місто', 'направление на город',
+                'в бік міста', 'у бік міста', 'в сторону города', 'до міста', 'к городу',
+                'на харків', 'на харьков', 'курс на харків', 'курс на харьков',
+                'в бік харкова', 'у бік харкова', 'в сторону харькова',
+                'заходить на місто', 'заходит на город', 'заходить на харків', 'заходит на харьков',
+                'рухається на місто', 'движется на город', 'летить на місто', 'летит на город',
+                'прямує на місто', 'захід на місто', 'захід на харків'
+            ]
+            has_city_approach = any(p in lower for p in city_approach_phrases)
+
+            if has_shelter:
+                city = True
+                if not approach:
+                    approach = 'district' if district else 'city'
+
+            if has_city_approach:
+                city = True
+                if not approach:
+                    approach = 'city' if any(w in lower for w in ['над', 'в черте', 'в межах']) else 'toward_city'
+
             context = self._channel_context.get(source)
             if not context or published - context['timestamp'] > tracking.context_seconds:
                 for other_src, other_ctx in self._channel_context.items():
@@ -362,10 +393,21 @@ class ThreatEvaluator:
             movement = self._has_keywords(lower, tracking.movement_keywords)
             event_id = str(msg.get('id') or f"{source}:{published}")
             inferred = False
-            if not kinds and context_fresh and ((movement and (district or city)) or approach == 'launch'):
-                kinds = list(context['kinds'])
-                group, name = context['group'], context['name']
-                inferred = True
+            if not kinds:
+                if context_fresh and ((movement and (district or city)) or approach == 'launch' or has_shelter or has_city_approach):
+                    kinds = list(context['kinds'])
+                    group, name = context['group'], context['name']
+                    inferred = True
+                elif has_shelter:
+                    # An urgent call to shelter with no prior context: treat as high-priority alert (rocket)
+                    kinds = ['rocket']
+                    inferred = True
+                elif has_city_approach or (movement and (district or city)):
+                    # Explicit movement towards city/district with no prior context: treat as incoming drone
+                    kinds = ['drone']
+                    group = 0
+                    name = 'тип не определён'
+                    inferred = True
             condition = self._ending_condition(lower, source, kinds)
             if condition and condition.regional_clear and self._has_keywords(lower,
                     ['для міста', 'для города', 'город', 'місто', 'область', 'области', 'повітряний', 'воздушный']):
@@ -373,17 +415,20 @@ class ThreatEvaluator:
             if not kinds and not condition:
                 return
             count_match = re.search(r'(?<!\w)(\d{1,2})\s+(?:ракет|каб|шахед|бпла|бандерол|на\s)', lower)
-            quantity = max(1, int(count_match[1])) if count_match else (context['quantity'] if inferred else 1)
+            quantity = max(1, int(count_match[1])) if count_match else (context['quantity'] if (inferred and context) else 1)
             if self._has_keywords(lower, ['два', 'дві', 'две', 'декілька', 'несколько']):
                 quantity = max(2, quantity)
-            category = 'clear' if condition else kinds[0]
+            has_explicit_threat = (self._has_keywords(lower, tracking.rocket_keywords) or
+                                   self._has_keywords(lower, tracking.bomb_keywords) or bool(name))
+            category = 'clear' if condition else ('shelter' if has_shelter and not has_explicit_threat else kinds[0])
+            badge_threat_str = condition.name if condition else ('В укрытие!' if has_shelter and not has_explicit_threat else '/'.join(THREAT_TYPES[k] for k in kinds))
             event = SignificantEvent(
                 time_str=datetime.fromtimestamp(published).strftime('%H:%M:%S'), timestamp=published,
                 channel=channel, category=category,
-                badge_threat=condition.name if condition else '/'.join(THREAT_TYPES[k] for k in kinds),
+                badge_threat=badge_threat_str,
                 badge_target=APPROACHES.get(approach, 'Приближение не определено') + (' / контекст канала' if inferred else ''),
                 sector_name=district or 'Город / область', drone_name=name, drone_group=group,
-                text=text, is_critical=approach in ('district', 'toward_district'))
+                text=text, is_critical=approach in ('district', 'toward_district') or has_shelter)
             self.status.significant_events.insert(0, event)
             del self.status.significant_events[40:]
             self.recent_events_log.insert(0, dict(channel=channel, text=text, time_str=event.time_str))
@@ -423,7 +468,7 @@ class ThreatEvaluator:
                     if published + ttl <= now:
                         continue  # Expired observation: kept in operational event history, but does not trigger live alarm
                     observation_text = text
-                    if inferred:
+                    if inferred and context:
                         observation_text += f" [тип из контекста @{channel}: {context['text']}]"
                     self._observations[key] = Observation(source, kind, approach, published, published + ttl,
                         observation_text, group if kind == 'drone' else 0, name if kind == 'drone' else '', district,

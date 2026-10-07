@@ -1,9 +1,9 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <ProjectDescriptor xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:xsd="http://www.w3.org/2001/XMLSchema">
   <ProjectVersion>3.0.0.0</ProjectVersion>
   <ManagementLevel>FunctLevelMan21_0</ManagementLevel>
-  <Name>Seren_Alarm</Name>
-  <FullName>D:\Dropbox\ILYA\PROGRAMMING\GCodeConverting\Antigravity\Seren\Seren_Alarm.smbp</FullName>
+  <Name>Seren_Alarm_Fixed</Name>
+  <FullName>D:\Dropbox\ILYA\PROGRAMMING\GCodeConverting\Antigravity\Seren\Seren_Alarm_Fixed.smbp</FullName>
   <CurrentCultureName>en-GB</CurrentCultureName>
   <SoftwareConfiguration>
     <Pous>
@@ -633,7 +633,7 @@
                 <ElementType>Coil</ElementType>
                 <Descriptor>%M0</Descriptor>
                 <Comment />
-                <Symbol>M_COM_OK</Symbol>
+                <Symbol>M_COM_LOST</Symbol>
                 <Row>0</Row>
                 <Column>10</Column>
                 <ChosenConnection>Left</ChosenConnection>
@@ -670,7 +670,7 @@
               </InstructionLineEntity>
             </InstructionLines>
             <Name>Watchdog_Timer</Name>
-            <MainComment>Watchdog: %M0 is 1 when communication is lost (timeout 12s), 0 when OK</MainComment>
+            <MainComment>Watchdog: %M0 is 1 on comm timeout (lost PC), 0 when comm is OK</MainComment>
             <Label />
             <IsLadderSelected>true</IsLadderSelected>
           </RungEntity>
@@ -680,7 +680,7 @@
                 <ElementType>NegatedContact</ElementType>
                 <Descriptor>%M0</Descriptor>
                 <Comment />
-                <Symbol>M_COM_OK</Symbol>
+                <Symbol>M_COM_LOST</Symbol>
                 <Row>0</Row>
                 <Column>0</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
@@ -833,7 +833,7 @@
               </InstructionLineEntity>
             </InstructionLines>
             <Name>Presets_Normal</Name>
-            <MainComment>Calculate active presets from PC registers (%MW3..%MW6)</MainComment>
+            <MainComment>Calculate active presets from PC registers (%MW3..%MW6) when comm is OK (LDN %M0)</MainComment>
             <Label />
             <IsLadderSelected>true</IsLadderSelected>
           </RungEntity>
@@ -843,7 +843,7 @@
                 <ElementType>NormalContact</ElementType>
                 <Descriptor>%M0</Descriptor>
                 <Comment />
-                <Symbol>M_COM_OK</Symbol>
+                <Symbol>M_COM_LOST</Symbol>
                 <Row>0</Row>
                 <Column>0</Column>
                 <ChosenConnection>Left, Right</ChosenConnection>
@@ -996,7 +996,7 @@
               </InstructionLineEntity>
             </InstructionLines>
             <Name>Presets_Emergency</Name>
-            <MainComment>Autonomous fallback alarm: 2 beeps (200ms/300ms) every 5s on comm loss</MainComment>
+            <MainComment>Autonomous fallback alarm: 2 beeps on comm loss (LD %M0)</MainComment>
             <Label />
             <IsLadderSelected>true</IsLadderSelected>
           </RungEntity>
@@ -1928,7 +1928,7 @@
       <MemoryBit>
         <Address>%M0</Address>
         <Index>0</Index>
-        <Symbol>M_COM_OK</Symbol>
+        <Symbol>M_COM_LOST</Symbol>
       </MemoryBit>
       <MemoryBit>
         <Address>%M1</Address>
@@ -3375,8 +3375,8 @@
       <Period>255</Period>
     </FastTask>
     <MastTask>
-      <UsePeriodScanMode>true</UsePeriodScanMode>
-      <PeriodScan>10</PeriodScan>
+      <UsePeriodScanMode>false</UsePeriodScanMode>
+      <PeriodScan>100</PeriodScan>
     </MastTask>
     <CpuBehavior>
       <StartingMode>StartInRun</StartingMode>

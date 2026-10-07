@@ -1,0 +1,4 @@
+case_id,impact_message_id,threat_type,signal_message_ids,review_status,physical_impact_time,notes
+rocket_nemyshlia,radar_kharkov/62588,rocket,radar_kharkov/62583|radar_kharkov/62584|radar_kharkov/62585|radar_kharkov/62586|radar_kharkov/62587,provisional,,Trajectory toward Novi Doma followed by explosion in Nemyshlia; review pairing and real impact time
+kab_nemyshlia,radar_kharkov/63541,kab,radar_kharkov/63540,provisional,,CAB trajectory toward Novi Doma followed by explosion in Nemyshlia; review pairing and real impact time
+kab_city_group,monitor1654/158368,kab,monitor1654/158365|monitor1654/158366|monitor1654/158367,provisional,,Four CABs toward city then over city then plural fall; city scope broader than configured target district

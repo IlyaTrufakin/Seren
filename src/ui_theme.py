@@ -156,36 +156,69 @@ class LedIndicator(tk.Canvas):
 class WordBitsWidget(tk.Frame):
     """
     16-битная интерактивная панель для отображения и (опционально) переключения битов 0..15.
-    Отображает биты от 15 (старший) до 0 (младший) слева направо.
+    Отображает биты от 15 (старший) до 0 (младший) слева направо с идеальным горизонтальным
+    выравниванием в единую сетку (одинаковая ширина колонок бит независимо от длины подписей).
     """
-    def __init__(self, parent, editable: bool = False, on_change: Optional[Callable[[int], None]] = None, **kwargs):
+    def __init__(
+        self,
+        parent,
+        row_title: str = "",
+        editable: bool = False,
+        on_change: Optional[Callable[[int], None]] = None,
+        bit_labels: Optional[Dict[int, str]] = None,
+        **kwargs
+    ):
         super().__init__(parent, bg=BG_CARD_LIGHT, **kwargs)
         self.editable = editable
         self.on_change = on_change
+        self.bit_labels = bit_labels or {}
         self.current_value = 0
         self.bit_buttons = []
 
-        # Заголовок и сетка
-        # Отображаем биты от 15 down to 0
         grid_frame = tk.Frame(self, bg=BG_CARD_LIGHT)
-        grid_frame.pack(padx=4, pady=4, fill="x")
+        grid_frame.pack(padx=6, pady=3, fill="x")
+
+        start_col = 0
+        if row_title:
+            grid_frame.columnconfigure(0, weight=0, minsize=165)
+            lbl_title = tk.Label(
+                grid_frame,
+                text=row_title,
+                font=FONT_BOLD,
+                fg=TEXT_ACCENT,
+                bg=BG_CARD_LIGHT,
+                width=18,
+                anchor="w"
+            )
+            lbl_title.grid(row=0, column=0, rowspan=3, padx=(4, 6), sticky="w")
+            start_col = 1
 
         for bit in range(15, -1, -1):
-            col = 15 - bit
-            # Добавим разделитель между байтами (после 8 бит)
-            pad_r = 6 if bit == 8 else 1
+            col_idx = 15 - bit
+            actual_col = start_col + col_idx
+            pad_r = 7 if bit == 8 else 1
 
-            col_frame = tk.Frame(grid_frame, bg=BG_CARD_LIGHT)
-            col_frame.grid(row=0, column=col, padx=(1, pad_r), pady=2)
+            # Гарантируем одинаковую ширину каждой из 16 колонок через uniform
+            grid_frame.columnconfigure(actual_col, weight=1, uniform="bit_col", minsize=42)
 
-            lbl_idx = tk.Label(col_frame, text=str(bit), font=FONT_BIT, fg=TEXT_MUTED, bg=BG_CARD_LIGHT)
-            lbl_idx.pack(side="top")
+            # 1. Номер бита
+            lbl_idx = tk.Label(
+                grid_frame,
+                text=str(bit),
+                font=FONT_BIT,
+                fg=TEXT_MUTED,
+                bg=BG_CARD_LIGHT,
+                width=4,
+                anchor="center"
+            )
+            lbl_idx.grid(row=0, column=actual_col, padx=(1, pad_r), pady=(2, 1))
 
+            # 2. Кнопка/индикатор бита
             btn = tk.Button(
-                col_frame,
+                grid_frame,
                 text="0",
                 font=FONT_BIT,
-                width=2,
+                width=3,
                 height=1,
                 bg=BIT_OFF,
                 fg=BIT_TEXT_OFF,
@@ -196,7 +229,21 @@ class WordBitsWidget(tk.Frame):
                 cursor="hand2" if editable else "arrow",
                 command=lambda b=bit: self._on_bit_clicked(b) if self.editable else None
             )
-            btn.pack(side="top", pady=1)
+            btn.grid(row=1, column=actual_col, padx=(1, pad_r), pady=1)
+
+            # 3. Текстовая мнемоника бита (всегда существует фиксированной ширины)
+            tag_text = self.bit_labels.get(bit, "")
+            lbl_tag = tk.Label(
+                grid_frame,
+                text=tag_text,
+                font=("Segoe UI", 7, "bold"),
+                fg=TEXT_ACCENT if tag_text else TEXT_MUTED,
+                bg=BG_CARD_LIGHT,
+                width=5,
+                anchor="center"
+            )
+            lbl_tag.grid(row=2, column=actual_col, padx=(1, pad_r), pady=(1, 3))
+
             self.bit_buttons.append((bit, btn))
 
     def _on_bit_clicked(self, bit: int):

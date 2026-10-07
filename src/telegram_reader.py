@@ -1,24 +1,29 @@
-import time
-import threading
-import queue
-import re
-import urllib.request
-from typing import List, Callable, Optional, Dict
+"""Telegram readers report transport health independently of message traffic."""
+import asyncio
+from collections import OrderedDict
+from datetime import datetime
+import hashlib
 import html
+import re
+import threading
+import time
+import urllib.request
+from typing import Callable, List
+
+
+def normalize_channel(channel):
+    return channel.strip().replace('https://t.me/', '').replace('@', '').strip('/').lower()
+
 
 class TelegramWebReader:
-    """
-    Быстрый неблокирующий ридер публичных каналов Telegram через веб-зеркало t.me/s/.
-    Работает без авторизации, без api_id и без телефона, получая свежие посты.
-    """
-    def __init__(self, channels: List[str], on_message: Callable[[dict], None], poll_interval: float = 4.0):
-        self.channels = [c.replace("https://t.me/", "").replace("@", "").strip() for c in channels if c.strip()]
-        self.on_message = on_message
+    def __init__(self, channels: List[str], on_message: Callable, poll_interval=4.0, on_health=None):
+        self.channels = [normalize_channel(c) for c in channels if c.strip()]
+        self.on_message, self.on_health = on_message, on_health
         self.poll_interval = poll_interval
         self._stop_event = threading.Event()
-        self._thread: Optional[threading.Thread] = None
-        self._seen_texts: Dict[str, set] = {ch: set() for ch in self.channels}
-        self.last_error: Optional[str] = None
+        self._thread = None
+        self._seen = {c: OrderedDict() for c in self.channels}
+        self.last_error = None
         self.is_running = False
 
     def start(self):
@@ -26,135 +31,116 @@ class TelegramWebReader:
             return
         self._stop_event.clear()
         self.is_running = True
-        self._thread = threading.Thread(target=self._run_loop, name="TgWebReaderThread", daemon=True)
+        self._thread = threading.Thread(target=self._run_loop, name='TgWebReader', daemon=True)
         self._thread.start()
 
     def stop(self):
         self._stop_event.set()
         self.is_running = False
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=0.2)
 
-    def _fetch_channel_messages(self, channel: str) -> List[dict]:
-        url = f"https://t.me/s/{channel}"
-        req = urllib.request.Request(
-            url,
-            headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept-Language": "uk-UA,uk;q=0.9,ru;q=0.8,en;q=0.7"
-            }
-        )
+    def _health(self, channel, ok, error=''):
+        if self.on_health and not self._stop_event.is_set():
+            self.on_health(channel, ok, error)
+
+    @staticmethod
+    def parse_messages(raw_html, channel):
+        # Every message owns its ID, text and time; textless posts cannot borrow the next post.
+        chunks = re.split(r'<div class="tgme_widget_message_wrap[^\"]*"', raw_html)[1:]
+        result = []
+        for chunk in chunks:
+            ident = re.search(r'data-post="([^\"]+)"', chunk)
+            text = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', chunk, re.S)
+            date = re.search(r'<time datetime="([^\"]+)"', chunk)
+            if not (ident and text and date):
+                continue
+            cleaned = html.unescape(re.sub(r'<[^>]+>', ' ', re.sub(r'<br\s*/?>', '\n', text[1])))
+            try:
+                published = datetime.fromisoformat(date[1].replace('Z', '+00:00')).timestamp()
+            except ValueError:
+                continue
+            result.append(dict(id=ident[1], channel=channel, text=cleaned.strip(),
+                               datetime_iso=date[1], timestamp=published))
+        return result
+
+    def _fetch_channel_messages(self, channel):
+        req = urllib.request.Request(f'https://t.me/s/{channel}', headers={'User-Agent': 'Mozilla/5.0'})
         try:
             with urllib.request.urlopen(req, timeout=8.0) as resp:
-                raw_html = resp.read().decode("utf-8", errors="ignore")
-                self.last_error = None
-        except Exception as e:
-            self.last_error = f"Ошибка сети при опросе @{channel}: {e}"
+                raw = resp.read().decode('utf-8', errors='replace')
+            if 'tgme_channel_info' not in raw and 'tgme_widget_message' not in raw:
+                raise ValueError('Страница канала недоступна или не распознана')
+            self.last_error = None
+            self._health(channel, True)
+            return self.parse_messages(raw, channel)
+        except Exception as exc:
+            self.last_error = f'Ошибка @{channel}: {exc}'
+            self._health(channel, False, self.last_error)
             return []
 
-        # Поиск блоков сообщений: текст и время
-        # Регулярка для извлечения виджетов сообщений
-        msg_blocks = re.findall(
-            r'<div class="tgme_widget_message_wrap[^"]*".*?<div class="tgme_widget_message_text[^>]*>(.*?)</div>.*?<time datetime="([^"]+)"',
-            raw_html,
-            re.DOTALL
-        )
-        results = []
-        for text_html, dt_str in msg_blocks:
-            # Очистка HTML
-            clean_text = re.sub(r'<br\s*/?>', '\n', text_html)
-            clean_text = re.sub(r'<[^>]+>', ' ', clean_text)
-            clean_text = html.unescape(clean_text).strip()
-            if not clean_text:
-                continue
-            results.append({
-                "channel": channel,
-                "text": clean_text,
-                "datetime_iso": dt_str,
-                "timestamp": time.time()
-            })
-        return results
-
     def _run_loop(self):
-        # Первичный прогон: запоминаем существующие последние сообщения, чтобы не спамить старыми
-        for ch in self.channels:
-            msgs = self._fetch_channel_messages(ch)
-            if ch not in self._seen_texts:
-                self._seen_texts[ch] = set()
-            for m in msgs:
-                self._seen_texts[ch].add(m["text"])
-
-        # Основной цикл
-        while not self._stop_event.is_set():
-            for ch in self.channels:
-                if self._stop_event.is_set():
-                    break
-                msgs = self._fetch_channel_messages(ch)
-                if ch not in self._seen_texts:
-                    self._seen_texts[ch] = set()
-
-                for m in msgs:
-                    txt = m["text"]
-                    if txt not in self._seen_texts[ch]:
-                        self._seen_texts[ch].add(txt)
-                        # Ограничиваем размер кэша последних сообщений
-                        if len(self._seen_texts[ch]) > 100:
-                            self._seen_texts[ch] = set(list(self._seen_texts[ch])[-60:])
+        try:
+            while not self._stop_event.is_set():
+                for channel in self.channels:
+                    if self._stop_event.is_set():
+                        break
+                    for message in self._fetch_channel_messages(channel):
+                        if self._stop_event.is_set():
+                            break
+                        seen = self._seen[channel]
+                        fingerprint = hashlib.sha256(message['text'].encode()).hexdigest()
+                        ident = message['id']
+                        if seen.get(ident) == fingerprint:
+                            continue
+                        seen[ident] = fingerprint
+                        seen.move_to_end(ident)
+                        while len(seen) > 200:
+                            seen.popitem(last=False)
                         try:
-                            self.on_message(m)
-                        except Exception as e:
-                            print(f"[TG Reader] Callback error: {e}")
-
-                # Небольшая пауза между каналами
-                time.sleep(0.5)
-
-            # Выдерживаем общий интервал опроса
-            steps = int(self.poll_interval * 10)
-            for _ in range(steps):
-                if self._stop_event.is_set():
-                    break
-                time.sleep(0.1)
+                            self.on_message(message)
+                        except Exception as exc:
+                            self.last_error = f'Ошибка обработки сообщения: {exc}'
+                    if self._stop_event.wait(0.2):
+                        break
+                self._stop_event.wait(max(0.1, self.poll_interval))
+        finally:
+            self.is_running = False
 
 
 class TelegramTelethonReader:
-    """
-    Полноценный клиент Telethon на официальном MTProto API.
-    Использует постоянное соединение и push-уведомления.
-    """
-    def __init__(self, api_id: int, api_hash: str, channels: List[str], on_message: Callable[[dict], None], session_name: str = "seren_tg"):
-        self.api_id = api_id
-        self.api_hash = api_hash
-        self.channels = [c.replace("https://t.me/", "").replace("@", "").strip() for c in channels if c.strip()]
-        self.on_message = on_message
+    def __init__(self, api_id, api_hash, channels, on_message, session_name='seren_tg', on_health=None):
+        self.api_id, self.api_hash = api_id, api_hash
+        self.channels = [normalize_channel(c) for c in channels if c.strip()]
+        self.on_message, self.on_health = on_message, on_health
         self.session_name = session_name
-        self._thread: Optional[threading.Thread] = None
-        self._loop = None
-        self._client = None
+        self._thread = self._loop = self._client = None
+        self._stop_event = threading.Event()
         self.is_running = False
-        self.last_error: Optional[str] = None
+        self.last_error = None
 
     def start(self):
         if self._thread and self._thread.is_alive():
             return
+        self._stop_event.clear()
         self.is_running = True
-        self._thread = threading.Thread(target=self._run_async_loop, name="TelethonThread", daemon=True)
+        self._thread = threading.Thread(target=self._run_async_loop, name='TelethonReader', daemon=True)
         self._thread.start()
 
     def stop(self):
+        self._stop_event.set()
         self.is_running = False
-        if self._client and self._loop:
-            try:
-                import asyncio
-                asyncio.run_coroutine_threadsafe(self._client.disconnect(), self._loop)
-            except Exception:
-                pass
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=2.0)
+        if self._client and self._loop and not self._loop.is_closed():
+            asyncio.run_coroutine_threadsafe(self._client.disconnect(), self._loop)
+        if self._thread:
+            self._thread.join(timeout=0.2)
+
+    def _health(self, channel, ok, error=''):
+        if self.on_health and not self._stop_event.is_set():
+            self.on_health(channel, ok, error)
 
     def _run_async_loop(self):
-        import asyncio
         from telethon import TelegramClient, events
-
         self._loop = asyncio.new_event_loop()
         asyncio.set_event_loop(self._loop)
 
@@ -163,28 +149,54 @@ class TelegramTelethonReader:
                 self._client = TelegramClient(self.session_name, self.api_id, self.api_hash)
                 await self._client.connect()
                 if not await self._client.is_user_authorized():
-                    self.last_error = "Требуется разовая авторизация Telethon в Telegram"
-                    return
-
-                @self._client.on(events.NewMessage(chats=self.channels))
-                async def handler(event):
+                    raise RuntimeError('Требуется разовая авторизация Telethon в Telegram')
+                entities = {}
+                for channel in self.channels:
+                    if self._stop_event.is_set():
+                        return
                     try:
-                        chat = await event.get_chat()
-                        ch_name = getattr(chat, 'username', None) or getattr(chat, 'title', 'unknown')
-                        self.on_message({
-                            "channel": ch_name,
-                            "text": event.raw_text,
-                            "datetime_iso": event.date.isoformat(),
-                            "timestamp": time.time()
-                        })
-                    except Exception as ex:
-                        print(f"[Telethon] Message handler error: {ex}")
+                        entity = await self._client.get_entity(channel)
+                        entities[channel] = entity
+                        # Verify access to each configured channel; replay is age-filtered by the evaluator.
+                        messages = await self._client.get_messages(entity, limit=20)
+                        self._health(channel, True)
+                        for msg in reversed(messages):
+                            if msg.raw_text:
+                                self.on_message(dict(id=str(msg.id), channel=channel, text=msg.raw_text,
+                                                     timestamp=msg.date.timestamp(), datetime_iso=msg.date.isoformat()))
+                    except Exception as exc:
+                        self._health(channel, False, str(exc))
 
-                await self._client.run_until_disconnected()
-            except Exception as e:
-                self.last_error = f"Ошибка Telethon: {e}"
+                @self._client.on(events.NewMessage(chats=list(entities.values())))
+                async def handler(event):
+                    if self._stop_event.is_set():
+                        return
+                    chat = await event.get_chat()
+                    channel = normalize_channel(getattr(chat, 'username', '') or '')
+                    if channel in entities:
+                        self._health(channel, True)
+                        self.on_message(dict(id=str(event.id), channel=channel, text=event.raw_text,
+                                             timestamp=event.date.timestamp(), datetime_iso=event.date.isoformat()))
+
+                while not self._stop_event.is_set():
+                    for channel, entity in entities.items():
+                        try:
+                            # Successful access probe, even in channels without new posts.
+                            await self._client.get_messages(entity, limit=1)
+                            self._health(channel, True)
+                        except Exception as exc:
+                            self._health(channel, False, str(exc))
+                    await asyncio.sleep(5)
+            except Exception as exc:
+                self.last_error = str(exc)
+                for channel in self.channels:
+                    self._health(channel, False, self.last_error)
+            finally:
+                if self._client:
+                    await self._client.disconnect()
 
         try:
             self._loop.run_until_complete(main())
         finally:
+            self.is_running = False
             self._loop.close()

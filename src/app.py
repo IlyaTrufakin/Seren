@@ -3,11 +3,14 @@ from tkinter import ttk, messagebox
 import queue
 import time
 import socket
+from copy import deepcopy
+import threading
 from datetime import datetime
+from typing import Optional, List, Dict
 
 from src.config import AppConfig
 from src.modbus_worker import ModbusWorker
-from src.threat_models import ThreatSystemConfig, ThreatStatus
+from src.threat_models import ThreatSystemConfig, ThreatStatus, SignificantEvent
 from src.threat_evaluator import ThreatEvaluator
 from src.threat_config_dialog import ThreatConfigDialog
 from src.ui_theme import (
@@ -18,16 +21,50 @@ from src.ui_theme import (
     FONT_TITLE, FONT_SUBTITLE, FONT_REGULAR, FONT_BOLD, FONT_MONO, FONT_VALUE_BIG
 )
 
+# Мнемонические подписи для бит слова управления %MW0 (ПК ➔ ПЛК)
+MW0_BIT_LABELS: Dict[int, str] = {
+    15: "HB",      # Heartbeat
+    10: "Тиш",     # Тихий час
+    9:  "Связ",    # Нет связи
+    8:  "БпЛА",    # Дрон
+    7:  "КАБ",     # КАБ
+    6:  "Рак",     # Ракета
+    5:  "К.Рай",   # Крит. район
+    4:  "К.Гор",   # Крит. город
+    3:  "П.Рай",   # Потенц. район
+    2:  "П.Гор",   # Потенц. город
+    1:  "Мин",     # Минимальная
+    0:  "Safe"     # Безопасно
+}
+
+# Мнемонические подписи для бит слова обратной связи %MW1 (ПЛК ➔ ПК)
+MW1_BIT_LABELS: Dict[int, str] = {
+    15: "RUN",     # ПЛК в работе
+    2:  "Тумб",    # Тумблер вкл/выкл оповещение
+    1:  "Сброс"    # Физическая кнопка сброса
+}
+
+
 class ModbusApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Modbus TCP Gateway — Schneider M221 (%MW0 / %MW1)")
-        self.geometry("980x760")
-        self.minsize(860, 680)
+        self.title("Seren — Система мониторинга угроз и шлюз ПЛК Schneider TM221")
+        self.geometry("1120x840")
+        self.minsize(980, 720)
         self.configure(bg=BG_MAIN)
 
-        # Конфигурация и воркер
+        # Конфигурация и воркер Modbus
         self.config = AppConfig.load()
+        # Гарантируем, что опрос идет по регистру обратной связи %MW1
+        if self.config.read_reg_address != 1:
+            self.config.read_reg_address = 1
+            self.config.save()
+
+        self._closing = False
+        self._evaluator_generation = 0
+        self._latest_status = None
+        self._status_lock = threading.Lock()
+        self._last_control_ack = None
         self.event_queue = queue.Queue()
         self.worker = ModbusWorker(self.config, self.event_queue)
 
@@ -35,10 +72,10 @@ class ModbusApp(tk.Tk):
         self.threat_config = ThreatSystemConfig.load()
         self.threat_evaluator = ThreatEvaluator(
             self.threat_config,
-            on_status_change=self._on_threat_status_changed
+            on_status_change=self._status_callback(self._evaluator_generation)
         )
 
-        # Переменные интерфейса
+        # Инициализация переменных интерфейса
         self._init_variables()
 
         # Настройка стилей
@@ -57,101 +94,115 @@ class ModbusApp(tk.Tk):
         self.after(50, self._process_events)
 
         # Автоматическое включение связи с контроллером при запуске
-        self.after(200, self._auto_connect_plc)
+        self.after(250, self._auto_connect_plc)
 
     def _auto_connect_plc(self):
         """Автоматический запуск связи с ПЛК по умолчанию при старте программы."""
-        self._log("Автоподключение к ПЛК по умолчанию при старте программы...", tag="info")
+        self._log("Автоподключение к ПЛК M221 по умолчанию...", tag="info")
         self._toggle_connection()
 
     def _init_variables(self):
-        # Сеть
+        # Сетевые параметры
         self.var_host = tk.StringVar(value=self.config.host)
         self.var_port = tk.StringVar(value=str(self.config.port))
         self.var_unit_id = tk.StringVar(value=str(self.config.unit_id))
         self.var_poll_ms = tk.StringVar(value=str(self.config.poll_interval_ms))
-        self.var_timeout = tk.StringVar(value=str(self.config.timeout))
         self.var_auto_reconnect = tk.BooleanVar(value=self.config.auto_reconnect)
 
-        # Угрозы
+        # Общий статус тревоги
         self.var_threat_title = tk.StringVar(value="БЕЗОПАСНО")
         self.var_threat_desc = tk.StringVar(value=f"Сектор: {self.threat_config.district.name} — обстановка спокойная")
-        self.var_threat_details = tk.StringVar(value="Источники: AlarmMap и Telegram подключены. Мониторинг активен.")
-        self.var_threat_word = tk.StringVar(value="%MW0: 0x0001 (Бит 0)")
-        self.var_threat_sound = tk.StringVar(value="Звук: Heartbeat (1 гуд.)")
+
+        # Бейджи тревоги
         self.var_badge_rocket = tk.StringVar(value="")
         self.var_badge_kab = tk.StringVar(value="")
         self.var_badge_drone = tk.StringVar(value="")
         self.var_badge_muted = tk.StringVar(value="")
         self.var_badge_plc_sw = tk.StringVar(value="")
 
-        # Регистры
-        self.var_write_addr = tk.StringVar(value=str(self.config.write_reg_address))
-        self.var_read_addr = tk.StringVar(value=str(self.config.read_reg_address))
-        self.var_write_addr.trace_add("write", self._on_reg_addrs_changed)
-        self.var_read_addr.trace_add("write", self._on_reg_addrs_changed)
+        # Звуковой профиль оповещения сирены (%MW2..%MW6)
+        self.var_sound_title = tk.StringVar(value="🔊 Норма (Heartbeat)")
+        self.var_sound_desc = tk.StringVar(value="Контрольный импульс сирены раз в 30 секунд (дежурный режим).")
+        self.var_sound_code = tk.StringVar(value="0")
+        self.var_sound_beeps = tk.StringVar(value="1 шт")
+        self.var_sound_dur = tk.StringVar(value="200 мс")
+        self.var_sound_pause = tk.StringVar(value="0 мс")
+        self.var_sound_interval = tk.StringVar(value="30000 мс")
+        self.var_sound_relay_state = tk.StringVar(value="ДЕЖУРНЫЙ")
 
-        # Запись
-        self.var_write_val_dec = tk.StringVar(value=str(self.config.last_write_value))
-        self.var_write_val_hex = tk.StringVar(value=f"0x{self.config.last_write_value:04X}")
-        self.var_cyclic_write = tk.BooleanVar(value=self.config.cyclic_write)
-        self.var_write_on_change = tk.BooleanVar(value=self.config.write_on_change)
+        # Источник 1: AlarmMap API
+        self.var_api_status = tk.StringVar(value="Проверка связи...")
+        self.var_api_alarm_badge = tk.StringVar(value="ТРЕВОГА НЕ ОБЪЯВЛЕНА")
+        self.var_api_types = tk.StringVar(value="Активные типы: нет")
+        self.var_api_full_text = tk.StringVar(value="Загрузка данных с сервера alarmmap.online...")
+        self.var_api_poll_time = tk.StringVar(value="Последний опрос: —")
 
-        # Чтение
-        self.var_read_dec_u = tk.StringVar(value="—")
-        self.var_read_dec_s = tk.StringVar(value="—")
-        self.var_read_hex = tk.StringVar(value="0x0000")
-        self.var_read_bin = tk.StringVar(value="0000 0000 0000 0000")
-        self.var_read_time = tk.StringVar(value="Ожидание данных...")
+        # Источник 2: Telegram Радар
+        self.var_tg_status = tk.StringVar(value="Инициализация каналов...")
+        self.var_tg_city = tk.StringVar(value="🏙️ Город: Спокойно")
+        self.var_tg_district = tk.StringVar(value="🎯 Сектор: Спокойно")
+        self.var_tg_drones = tk.StringVar(value="🛸 БпЛА: угроз не зафиксировано")
+        self.var_tg_last_post = tk.StringVar(value="Свежих постов: —")
 
-        # Статистика и обратная связь ПЛК
+        # Modbus регистры %MW0 и %MW1
+        self.var_mw0_info = tk.StringVar(value="Слово управления %MW0: 0x0001 (DEC: 1)")
+        self.var_mw1_info = tk.StringVar(value="Слово обратной связи %MW1: ожидание ответа ПЛК...")
+
+        # Системный статус и лог
         self.var_status_text = tk.StringVar(value="Отключено")
-        self.var_stats_text = tk.StringVar(value="Запросов: 0 | Ошибок: 0 | Задержка: 0.0 мс")
+        self.var_stats_text = tk.StringVar(value="Запросов: 0 | Ошибок: 0 | Задержка RTT: 0.0 мс")
         self.var_autoscroll = tk.BooleanVar(value=True)
-        self.var_plc_feedback_text = tk.StringVar(value="ПЛК: ожидание связи")
+        self.var_tg_autoscroll = tk.BooleanVar(value=True)
+
         self._last_plc_reset_bit = False
         self._last_plc_switch_bit: Optional[bool] = None
 
-        self._updating_write_inputs = False
-        self._last_sent_val = -1
-
     def _build_ui(self):
         # Главный контейнер
-        main_frame = tk.Frame(self, bg=BG_MAIN, padx=14, pady=10)
-        main_frame.pack(fill="both", expand=True)
+        viewport = tk.Frame(self, bg=BG_MAIN)
+        viewport.pack(fill="both", expand=True)
+        canvas = tk.Canvas(viewport, bg=BG_MAIN, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(viewport, orient="vertical", command=canvas.yview)
+        scrollbar.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        canvas.configure(yscrollcommand=scrollbar.set)
+        main_frame = tk.Frame(canvas, bg=BG_MAIN, padx=12, pady=8)
+        window = canvas.create_window((0, 0), window=main_frame, anchor="nw")
+        main_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
 
-        # 1. Верхняя панель (Header)
+        # 1. Верхняя панель (Header + Кнопки управления + Связь)
         self._build_header(main_frame)
 
-        # 2. Мониторинг угроз (г. Харьков и сектор объекта)
-        self._build_threat_panel(main_frame)
+        # 2. Карточка итогового уровня тревоги
+        self._build_threat_status_panel(main_frame)
 
-        # 3. Сетевая панель (Network Settings)
-        self._build_network_panel(main_frame)
+        # 3. Выделенная карточка текущего звукового профиля оповещения (%MW2..%MW6)
+        self._build_sound_profile_panel(main_frame)
 
-        # 4. Основная рабочая зона (2 колонки: Запись %MW и Чтение %MW)
-        work_frame = tk.Frame(main_frame, bg=BG_MAIN)
-        work_frame.pack(fill="x", pady=(10, 8))
-        work_frame.columnconfigure(0, weight=1)
-        work_frame.columnconfigure(1, weight=1)
+        # 4. Детализация формирования статуса из источников (API + Telegram)
+        self._build_sources_panel(main_frame)
 
-        self._build_write_card(work_frame)
-        self._build_read_card(work_frame)
+        # 5. Битовые состояния слов Modbus (%MW0 и %MW1)
+        self._build_modbus_bits_panel(main_frame)
 
-        # 5. Журнал событий (Log)
+        # 6. Оперативные значимые сообщения Telegram (фильтрация мусора)
+        self._build_significant_messages_panel(main_frame)
+
+        # 7. Компактный системный журнал
         self._build_log_panel(main_frame)
 
     def _build_header(self, parent):
         header_frame = tk.Frame(parent, bg=BG_MAIN)
-        header_frame.pack(fill="x", pady=(0, 8))
+        header_frame.pack(fill="x", pady=(0, 6))
 
-        # Левая часть - Заголовок
+        # Левая часть — Название системы
         left = tk.Frame(header_frame, bg=BG_MAIN)
-        left.pack(side="left")
+        left.pack(fill="x")
 
         title_lbl = tk.Label(
             left,
-            text="ПЛК TM221 — Шлюз Modbus TCP",
+            text="Seren — Мониторинг угроз и шлюз ПЛК Schneider TM221",
             font=FONT_TITLE,
             fg=TEXT_MAIN,
             bg=BG_MAIN
@@ -160,151 +211,654 @@ class ModbusApp(tk.Tk):
 
         sub_lbl = tk.Label(
             left,
-            text="Двусторонний обмен словами данных %MW0 (ПК → ПЛК) и %MW1 (ПЛК → ПК)",
+            text="Автоматический синтез AlarmMap API + Telegram ➔ передача статуса и звуковых профилей в ПЛК (%MW0..%MW6)",
             font=FONT_REGULAR,
             fg=TEXT_MUTED,
             bg=BG_MAIN
         )
         sub_lbl.pack(anchor="w")
 
-        # Правая часть - Индикатор состояния
+        # Правая часть — Сетевой статус и быстрые кнопки управления
         right = tk.Frame(header_frame, bg=BG_MAIN)
-        right.pack(side="right")
+        right.pack(fill="x", pady=(5, 0))
 
+        # Кнопка сброса тревоги (перенесена наверх в панель инструментов)
+        btn_reset = ttk.Button(
+            right,
+            text="Сбросить тревогу",
+            style="Danger.TButton",
+            command=lambda: self.threat_evaluator.reset_threat_state(source="Кнопка интерфейса ПК")
+        )
+        btn_reset.pack(side="right", padx=(6, 0))
+
+        # Конфигуратор правил
+        btn_cfg = ttk.Button(
+            right,
+            text="⚙️ Конфигуратор",
+            style="Outline.TButton",
+            command=self._open_threat_config
+        )
+        btn_cfg.pack(side="right", padx=(6, 0))
+
+        # Кнопка пинга
+        btn_ping = ttk.Button(
+            right,
+            text="Пинг",
+            style="Outline.TButton",
+            command=self._test_connection_quick
+        )
+        btn_ping.pack(side="right", padx=(6, 0))
+
+        # Кнопка подключения к ПЛК
+        self.btn_connect = ttk.Button(
+            right,
+            text="Подключить",
+            style="Success.TButton",
+            command=self._toggle_connection
+        )
+        self.btn_connect.pack(side="right", padx=(6, 0))
+
+        state_box = tk.Frame(right, bg=BG_MAIN)
+        state_box.pack(side="left", padx=(0, 10))
+        self.led_analysis_switch = LedIndicator(state_box, size=20)
+        self.led_analysis_switch.pack(side="left", padx=(0, 5))
+        self.led_analysis_switch.set_state("connecting")
+        self.var_analysis_switch = tk.StringVar(value="ОПОВЕЩЕНИЕ: НЕТ ДАННЫХ")
+        tk.Label(state_box, textvariable=self.var_analysis_switch, bg=BG_MAIN,
+                 fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left")
+
+        # Индикатор связи с ПЛК
         self.led_indicator = LedIndicator(right, size=20)
-        self.led_indicator.pack(side="left", padx=(0, 8))
+        self.led_indicator.pack(side="right", padx=(0, 6))
 
-        status_lbl = tk.Label(
+        self.lbl_status = tk.Label(
             right,
             textvariable=self.var_status_text,
             font=FONT_BOLD,
             fg=COLOR_DANGER,
             bg=BG_MAIN
         )
-        status_lbl.pack(side="left")
-        self.lbl_status = status_lbl
+        self.lbl_status.pack(side="right", padx=(0, 6))
 
-    def _build_threat_panel(self, parent):
+    def _build_threat_status_panel(self, parent):
+        """Карточка текущего уровня тревоги и бейджей активных угроз."""
         card = tk.LabelFrame(
             parent,
-            text="  МОНИТОРИНГ УГРОЗ: г. ХАРЬКОВ (AlarmMap API + Telegram)  ",
+            text="  ТЕКУЩИЙ УРОВЕНЬ ТРЕВОГИ  ",
             bg=BG_CARD,
             fg="#f59e0b",
             font=FONT_SUBTITLE,
             bd=1,
             relief="solid",
             padx=10,
-            pady=8
+            pady=6
         )
         card.pack(fill="x", pady=(0, 6))
 
         top_row = tk.Frame(card, bg=BG_CARD)
         top_row.pack(fill="x")
 
-        # LED статуса угрозы
+        # LED статуса тревоги
         self.led_threat = LedIndicator(top_row, size=22)
         self.led_threat.pack(side="left", padx=(0, 8))
         self.led_threat.set_state("connected")
 
-        # Плашка уровня угрозы
+        # Основная плашка уровня
         self.lbl_threat_badge = tk.Label(
             top_row,
             textvariable=self.var_threat_title,
             font=FONT_BOLD,
             bg="#065f46",
             fg="#34d399",
-            padx=10,
+            padx=12,
             pady=3,
             bd=1,
             relief="solid"
         )
         self.lbl_threat_badge.pack(side="left", padx=(0, 10))
 
-        # Описание сектора
-        lbl_sec = tk.Label(
+        # Описание сектора с динамическим переносом строк
+        self.lbl_sec = tk.Label(
             top_row,
             textvariable=self.var_threat_desc,
             font=FONT_REGULAR,
             bg=BG_CARD,
-            fg=TEXT_MAIN
+            fg=TEXT_MAIN,
+            wraplength=520,
+            justify="left"
         )
-        lbl_sec.pack(side="left")
+        self.lbl_sec.pack(side="left", fill="x", expand=True)
 
-        # Кнопка конфигуратора
-        btn_cfg = ttk.Button(
-            top_row,
-            text="⚙️ Конфигуратор правил",
-            style="Outline.TButton",
-            command=self._open_threat_config
+        self.var_threat_reason = tk.StringVar(value="Ожидание данных источников")
+        tk.Label(card, text="Причина текущего уровня и источники:", bg=BG_CARD,
+                 fg=TEXT_ACCENT, font=FONT_BOLD).pack(anchor="w", pady=(5, 0))
+        self.txt_threat_reason = tk.Text(card, height=4, wrap="word", bg=BG_INPUT,
+                                        fg=TEXT_MAIN, font=FONT_REGULAR, state="disabled")
+        self.txt_threat_reason.pack(fill="x", pady=(2, 0))
+        self.var_plc_delivery = tk.StringVar(value="Команда ПЛК: ожидает подтверждения")
+        tk.Label(card, textvariable=self.var_plc_delivery, bg=BG_CARD,
+                 fg=TEXT_MUTED, font=FONT_REGULAR).pack(anchor="w")
+
+        # Контейнер бейджей угроз (Ракета, КАБ, Дрон, Режим тишины, Тумблер ПЛК)
+        self.badge_box = tk.Frame(top_row, bg=BG_CARD)
+        self.badge_box.pack(side="right")
+
+        self.lbl_badge_rocket = tk.Label(self.badge_box, textvariable=self.var_badge_rocket, font=FONT_BOLD, bg="#7f1d1d", fg="#fca5a5", padx=6, pady=2)
+        self.lbl_badge_kab = tk.Label(self.badge_box, textvariable=self.var_badge_kab, font=FONT_BOLD, bg="#78350f", fg="#fcd34d", padx=6, pady=2)
+        self.lbl_badge_drone = tk.Label(self.badge_box, textvariable=self.var_badge_drone, font=FONT_BOLD, bg="#312e81", fg="#a5b4fc", padx=6, pady=2)
+        self.lbl_badge_muted = tk.Label(self.badge_box, textvariable=self.var_badge_muted, font=FONT_BOLD, bg="#475569", fg="#e2e8f0", padx=6, pady=2)
+        self.lbl_badge_plc_sw = tk.Label(self.badge_box, textvariable=self.var_badge_plc_sw, font=FONT_BOLD, bg="#374151", fg="#9ca3af", padx=6, pady=2)
+
+    def _build_sound_profile_panel(self, parent):
+        """Выделенная карточка текущего типа звукового оповещения и параметров сирены (%MW2..%MW6)."""
+        card = tk.LabelFrame(
+            parent,
+            text="  🔊 ТЕКУЩИЙ ЗВУКОВОЙ ПРОФИЛЬ ОПОВЕЩЕНИЯ СИРЕНЫ (ПЛК %MW2..%MW6)  ",
+            bg=BG_CARD,
+            fg="#38bdf8",
+            font=FONT_SUBTITLE,
+            bd=1,
+            relief="solid",
+            padx=10,
+            pady=6
         )
-        btn_cfg.pack(side="right")
+        card.pack(fill="x", pady=(0, 6))
 
-        # Звуковой профиль гудков
-        self.lbl_threat_sound = tk.Label(
-            top_row,
-            textvariable=self.var_threat_sound,
+        content_row = tk.Frame(card, bg=BG_CARD)
+        content_row.pack(fill="x")
+        content_row.columnconfigure(0, weight=1)
+        content_row.columnconfigure(1, weight=0)
+
+        # Левая часть — активный профиль и текстовое пояснение
+        left_box = tk.Frame(content_row, bg=BG_CARD)
+        left_box.grid(row=0, column=0, sticky="w")
+
+        prof_title_row = tk.Frame(left_box, bg=BG_CARD)
+        prof_title_row.pack(anchor="w", pady=(0, 2))
+
+        self.lbl_sound_badge = tk.Label(
+            prof_title_row,
+            textvariable=self.var_sound_title,
             font=FONT_BOLD,
             bg="#1e293b",
             fg="#38bdf8",
-            padx=8,
-            pady=3,
+            padx=10,
+            pady=2,
             bd=1,
             relief="solid"
         )
-        self.lbl_threat_sound.pack(side="right", padx=(0, 10))
+        self.lbl_sound_badge.pack(side="left", padx=(0, 8))
 
-        # Слово для ПЛК (%MW0)
-        self.lbl_threat_plc_word = tk.Label(
-            top_row,
-            textvariable=self.var_threat_word,
-            font=FONT_MONO,
-            bg=BG_CARD,
-            fg=TEXT_ACCENT
+        self.lbl_sound_relay = tk.Label(
+            prof_title_row,
+            textvariable=self.var_sound_relay_state,
+            font=FONT_BOLD,
+            bg="#065f46",
+            fg="#34d399",
+            padx=8,
+            pady=2,
+            bd=1,
+            relief="solid"
         )
-        self.lbl_threat_plc_word.pack(side="right", padx=(0, 10))
+        self.lbl_sound_relay.pack(side="left")
 
-        # Нижняя строка: последнее событие и бейджи
-        bot_row = tk.Frame(card, bg=BG_CARD)
-        bot_row.pack(fill="x", pady=(6, 0))
-
-        self.badge_box = tk.Frame(bot_row, bg=BG_CARD)
-        self.badge_box.pack(side="right")
-
-        self.lbl_badge_rocket = tk.Label(self.badge_box, textvariable=self.var_badge_rocket, font=FONT_BOLD, bg="#7f1d1d", fg="#fca5a5", padx=6, pady=1)
-        self.lbl_badge_kab = tk.Label(self.badge_box, textvariable=self.var_badge_kab, font=FONT_BOLD, bg="#78350f", fg="#fcd34d", padx=6, pady=1)
-        self.lbl_badge_drone = tk.Label(self.badge_box, textvariable=self.var_badge_drone, font=FONT_BOLD, bg="#312e81", fg="#a5b4fc", padx=6, pady=1)
-        self.lbl_badge_muted = tk.Label(self.badge_box, textvariable=self.var_badge_muted, font=FONT_BOLD, bg="#475569", fg="#e2e8f0", padx=6, pady=1)
-        self.lbl_badge_plc_sw = tk.Label(self.badge_box, textvariable=self.var_badge_plc_sw, font=FONT_BOLD, bg="#374151", fg="#9ca3af", padx=6, pady=1)
-
-        self.lbl_threat_details = tk.Label(
-            bot_row,
-            textvariable=self.var_threat_details,
+        self.lbl_sound_desc = tk.Label(
+            left_box,
+            textvariable=self.var_sound_desc,
             font=FONT_REGULAR,
             bg=BG_CARD,
             fg=TEXT_MUTED,
-            anchor="w"
+            wraplength=480,
+            justify="left"
         )
-        self.lbl_threat_details.pack(side="left", fill="x", expand=True)
+        self.lbl_sound_desc.pack(anchor="w")
+
+        # Правая часть — мини-карточки регистров %MW2..%MW6
+        right_box = tk.Frame(content_row, bg=BG_CARD)
+        right_box.grid(row=0, column=1, sticky="e", padx=(10, 0))
+
+        reg_cards = [
+            ("Код (%MW2)", self.var_sound_code, "#38bdf8"),
+            ("Гудков (%MW3)", self.var_sound_beeps, "#facc15"),
+            ("Длит. (%MW4)", self.var_sound_dur, "#60a5fa"),
+            ("Пауза (%MW5)", self.var_sound_pause, "#a78bfa"),
+            ("Интервал (%MW6)", self.var_sound_interval, "#34d399"),
+        ]
+
+        for lbl_name, var_val, col_fg in reg_cards:
+            cell = tk.Frame(right_box, bg=BG_CARD_LIGHT, padx=6, pady=2, bd=1, relief="solid")
+            cell.pack(side="left", padx=3)
+
+            tk.Label(cell, text=lbl_name, font=("Segoe UI", 7), fg=TEXT_MUTED, bg=BG_CARD_LIGHT).pack(anchor="center")
+            tk.Label(cell, textvariable=var_val, font=("Consolas", 10, "bold"), fg=col_fg, bg=BG_CARD_LIGHT).pack(anchor="center")
+
+    def _build_sources_panel(self, parent):
+        """Панель расширенной информации о формировании статуса опасности от обоих источников."""
+        sources_frame = tk.Frame(parent, bg=BG_MAIN)
+        sources_frame.pack(fill="x", pady=(0, 6))
+        sources_frame.columnconfigure(0, weight=1)
+        sources_frame.columnconfigure(1, weight=1)
+
+        # --- Колонка 1: API (alarmmap.online) ---
+        api_card = tk.LabelFrame(
+            sources_frame,
+            text="  🌐 Источник: API alarmmap.online  ",
+            bg=BG_CARD,
+            fg="#60a5fa",
+            font=FONT_SUBTITLE,
+            bd=1,
+            relief="solid",
+            padx=10,
+            pady=6
+        )
+        api_card.grid(row=0, column=0, sticky="nsew", padx=(0, 4))
+
+        api_header = tk.Frame(api_card, bg=BG_CARD)
+        api_header.pack(fill="x", pady=(0, 4))
+
+        self.led_api = LedIndicator(api_header, size=16)
+        self.led_api.pack(side="left", padx=(0, 6))
+
+        tk.Label(api_header, text="Связь API:", font=FONT_BOLD, bg=BG_CARD, fg=TEXT_MUTED).pack(side="left")
+        self.lbl_api_status = tk.Label(api_header, textvariable=self.var_api_status, font=FONT_BOLD, bg=BG_CARD, fg=TEXT_MAIN)
+        self.lbl_api_status.pack(side="left", padx=4)
+
+        self.lbl_api_poll = tk.Label(api_header, textvariable=self.var_api_poll_time, font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MUTED)
+        self.lbl_api_poll.pack(side="right")
+
+        # Состояние тревоги API
+        api_state_row = tk.Frame(api_card, bg=BG_CARD)
+        api_state_row.pack(fill="x", pady=2)
+
+        tk.Label(api_state_row, text="Статус в городе:", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MAIN).pack(side="left")
+        self.lbl_api_alarm_badge = tk.Label(
+            api_state_row,
+            textvariable=self.var_api_alarm_badge,
+            font=FONT_BOLD,
+            bg="#065f46",
+            fg="#34d399",
+            padx=8,
+            pady=1,
+            bd=1,
+            relief="solid"
+        )
+        self.lbl_api_alarm_badge.pack(side="left", padx=6)
+
+        # Типы угроз API
+        self.lbl_api_types = tk.Label(
+            api_card,
+            textvariable=self.var_api_types,
+            font=FONT_BOLD,
+            bg=BG_CARD,
+            fg="#93c5fd",
+            anchor="w",
+            wraplength=480,
+            justify="left"
+        )
+        self.lbl_api_types.pack(fill="x", pady=(2, 2))
+
+        # Полная расшифровка угроз из API
+        self.lbl_api_full = tk.Label(
+            api_card,
+            textvariable=self.var_api_full_text,
+            font=FONT_REGULAR,
+            bg=BG_CARD,
+            fg=TEXT_MUTED,
+            anchor="w",
+            wraplength=480,
+            justify="left"
+        )
+        self.lbl_api_full.pack(fill="x", pady=(2, 0))
+        ttk.Button(api_card, text="Справочник типов и уровней API", command=self._show_api_catalog).pack(anchor="w", pady=3)
+
+        # --- Колонка 2: Telegram Мониторинг ---
+        tg_card = tk.LabelFrame(
+            sources_frame,
+            text="  📱 Источник: Telegram Радар каналов  ",
+            bg=BG_CARD,
+            fg="#a78bfa",
+            font=FONT_SUBTITLE,
+            bd=1,
+            relief="solid",
+            padx=10,
+            pady=6
+        )
+        tg_card.grid(row=0, column=1, sticky="nsew", padx=(4, 0))
+
+        tg_header = tk.Frame(tg_card, bg=BG_CARD)
+        tg_header.pack(fill="x", pady=(0, 4))
+
+        self.led_tg = LedIndicator(tg_header, size=16)
+        self.led_tg.pack(side="left", padx=(0, 6))
+
+        tk.Label(tg_header, text="Связь Telegram:", font=FONT_BOLD, bg=BG_CARD, fg=TEXT_MUTED).pack(side="left")
+        self.lbl_tg_status = tk.Label(tg_header, textvariable=self.var_tg_status, font=FONT_BOLD, bg=BG_CARD, fg=TEXT_MAIN)
+        self.lbl_tg_status.pack(side="left", padx=4)
+
+        self.lbl_tg_last_post = tk.Label(tg_header, textvariable=self.var_tg_last_post, font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MUTED)
+        self.lbl_tg_last_post.pack(side="right")
+
+        # Опасность для города и района
+        tg_threat_row = tk.Frame(tg_card, bg=BG_CARD)
+        tg_threat_row.pack(fill="x", pady=2)
+
+        self.lbl_tg_city = tk.Label(
+            tg_threat_row,
+            textvariable=self.var_tg_city,
+            font=FONT_BOLD,
+            bg=BG_CARD,
+            fg="#38bdf8",
+            wraplength=230,
+            justify="left"
+        )
+        self.lbl_tg_city.pack(side="left")
+
+        self.lbl_tg_district = tk.Label(
+            tg_threat_row,
+            textvariable=self.var_tg_district,
+            font=FONT_BOLD,
+            bg=BG_CARD,
+            fg="#fbbf24",
+            wraplength=250,
+            justify="left"
+        )
+        self.lbl_tg_district.pack(side="right")
+
+        # Классификатор дронов
+        self.lbl_tg_drones = tk.Label(
+            tg_card,
+            textvariable=self.var_tg_drones,
+            font=FONT_REGULAR,
+            bg=BG_CARD,
+            fg=TEXT_MUTED,
+            anchor="w",
+            wraplength=480,
+            justify="left"
+        )
+        self.lbl_tg_drones.pack(fill="x", pady=(2, 0))
+
+    def _build_modbus_bits_panel(self, parent):
+        """Битовые состояния слов данных %MW0 (ПК->ПЛК) и %MW1 (ПЛК->ПК) с безупречным выравниванием."""
+        bits_card = tk.LabelFrame(
+            parent,
+            text="  БИТОВЫЕ СОСТОЯНИЯ СЛОВ MODBUS (%MW0 / %MW1)  ",
+            bg=BG_CARD,
+            fg="#34d399",
+            font=FONT_SUBTITLE,
+            bd=1,
+            relief="solid",
+            padx=10,
+            pady=6
+        )
+        bits_card.pack(fill="x", pady=(0, 6))
+
+        # 1. Слово передачи %MW0
+        mw0_row = tk.Frame(bits_card, bg=BG_CARD)
+        mw0_row.pack(fill="x", pady=(0, 2))
+
+        tk.Label(mw0_row, textvariable=self.var_mw0_info, font=FONT_BOLD, bg=BG_CARD, fg="#60a5fa").pack(side="left")
+
+        self.bits_mw0 = WordBitsWidget(bits_card, row_title="%MW0 (ПК ➔ ПЛК)", editable=False, bit_labels=MW0_BIT_LABELS)
+        self.bits_mw0.pack(fill="x", pady=(0, 6))
+
+        # 2. Слово приема %MW1
+        mw1_row = tk.Frame(bits_card, bg=BG_CARD)
+        mw1_row.pack(fill="x", pady=(2, 2))
+
+        self.lbl_mw1_info = tk.Label(mw1_row, textvariable=self.var_mw1_info, font=FONT_BOLD, bg=BG_CARD, fg=COLOR_SUCCESS)
+        self.lbl_mw1_info.pack(side="left")
+
+        self.bits_mw1 = WordBitsWidget(bits_card, row_title="%MW1 (ПЛК ➔ ПК)", editable=False, bit_labels=MW1_BIT_LABELS)
+        self.bits_mw1.pack(fill="x", pady=(0, 2))
+
+    def _build_significant_messages_panel(self, parent):
+        """Таблица/список оперативных значимых сообщений Telegram (мусор фильтруется)."""
+        card = tk.LabelFrame(
+            parent,
+            text="  ОПЕРАТИВНЫЕ ЗНАЧИМЫЕ СООБЩЕНИЯ TELEGRAM (ФИЛЬТРАЦИЯ МУСОРА)  ",
+            bg=BG_CARD,
+            fg="#f59e0b",
+            font=FONT_SUBTITLE,
+            bd=1,
+            relief="solid",
+            padx=10,
+            pady=6
+        )
+        card.pack(fill="both", expand=True, pady=(0, 6))
+
+        text_container = tk.Frame(card, bg=BG_CARD)
+        text_container.pack(fill="both", expand=True)
+
+        self.txt_tg_events = tk.Text(
+            text_container,
+            height=6,
+            bg=BG_INPUT,
+            fg=TEXT_MAIN,
+            font=("Consolas", 10),
+            relief="flat",
+            bd=0,
+            padx=8,
+            pady=4,
+            wrap="word"
+        )
+        scrollbar_y = ttk.Scrollbar(text_container, orient="vertical", command=self.txt_tg_events.yview)
+        self.txt_tg_events.configure(yscrollcommand=scrollbar_y.set)
+
+        self.txt_tg_events.pack(side="left", fill="both", expand=True)
+        scrollbar_y.pack(side="right", fill="y")
+
+        # Настройка цветных тегов
+        self.txt_tg_events.tag_config("time", foreground="#94a3b8")
+        self.txt_tg_events.tag_config("channel", foreground="#38bdf8", font=("Consolas", 10, "bold"))
+        self.txt_tg_events.tag_config("badge_rocket", foreground="#f87171", font=("Consolas", 10, "bold"))
+        self.txt_tg_events.tag_config("badge_kab", foreground="#fcd34d", font=("Consolas", 10, "bold"))
+        self.txt_tg_events.tag_config("badge_drone", foreground="#c084fc", font=("Consolas", 10, "bold"))
+        self.txt_tg_events.tag_config("badge_clear", foreground="#34d399", font=("Consolas", 10, "bold"))
+        self.txt_tg_events.tag_config("badge_shelter", foreground="#ef4444", font=("Consolas", 10, "bold"))
+        self.txt_tg_events.tag_config("badge_target", foreground="#fbbf24")
+        self.txt_tg_events.tag_config("msg_text", foreground=TEXT_MAIN)
+        self.txt_tg_events.tag_config("critical_text", foreground="#fca5a5", font=("Consolas", 10, "bold"))
+
+        # Подвал списка сообщений
+        bot_row = tk.Frame(card, bg=BG_CARD)
+        bot_row.pack(fill="x", pady=(4, 0))
+
+        tk.Label(
+            bot_row,
+            text="* Внимание: реклама, чат и сообщения без военных угроз автоматически игнорируются фильтром.",
+            font=("Segoe UI", 8),
+            fg=TEXT_MUTED,
+            bg=BG_CARD
+        ).pack(side="left")
+
+        ttk.Button(bot_row, text="Очистить", style="Outline.TButton", command=self._clear_tg_events).pack(side="right")
+        ttk.Checkbutton(bot_row, text="Автопрокрутка", variable=self.var_tg_autoscroll).pack(side="right", padx=(0, 8))
+
+    def _build_log_panel(self, parent):
+        """Компактный системный журнал для сетевых и аварийных событий."""
+        log_frame = tk.LabelFrame(
+            parent,
+            text="  Системный журнал и статистика обмена  ",
+            bg=BG_CARD,
+            fg=TEXT_MUTED,
+            font=FONT_SUBTITLE,
+            bd=1,
+            relief="solid",
+            padx=8,
+            pady=4
+        )
+        log_frame.pack(fill="x")
+
+        text_container = tk.Frame(log_frame, bg=BG_CARD)
+        text_container.pack(fill="x")
+
+        self.txt_log = tk.Text(
+            text_container,
+            height=3,
+            bg=BG_INPUT,
+            fg=TEXT_MAIN,
+            font=("Consolas", 9),
+            relief="flat",
+            bd=0,
+            padx=6,
+            pady=2,
+            wrap="none"
+        )
+        scrollbar_y = ttk.Scrollbar(text_container, orient="vertical", command=self.txt_log.yview)
+        self.txt_log.configure(yscrollcommand=scrollbar_y.set)
+
+        self.txt_log.pack(side="left", fill="x", expand=True)
+        scrollbar_y.pack(side="right", fill="y")
+
+        self.txt_log.tag_config("info", foreground=TEXT_MAIN)
+        self.txt_log.tag_config("success", foreground=COLOR_SUCCESS)
+        self.txt_log.tag_config("error", foreground=COLOR_DANGER)
+        self.txt_log.tag_config("warn", foreground=COLOR_WARNING)
+        self.txt_log.tag_config("time", foreground=TEXT_MUTED)
+
+        bottom_row = tk.Frame(log_frame, bg=BG_CARD)
+        bottom_row.pack(fill="x", pady=(2, 0))
+
+        lbl_stats = tk.Label(bottom_row, textvariable=self.var_stats_text, font=("Segoe UI", 8), bg=BG_CARD, fg=TEXT_MUTED)
+        lbl_stats.pack(side="left")
+
+        ttk.Button(bottom_row, text="Очистить лог", style="Outline.TButton", command=self._clear_log).pack(side="right")
+
+    # --- Управление сетью Modbus ---
+
+    def _update_analysis_indicator(self, enabled=None):
+        if enabled is None:
+            self.led_analysis_switch.set_state("connecting")
+            self.var_analysis_switch.set("ОПОВЕЩЕНИЕ: НЕТ ДАННЫХ")
+        else:
+            self.led_analysis_switch.set_state("connected" if enabled else "error")
+            self.var_analysis_switch.set("ОПОВЕЩЕНИЕ: ВКЛЮЧЕНО" if enabled else "ОПОВЕЩЕНИЕ: ВЫКЛЮЧЕНО")
+
+    def _toggle_connection(self):
+        if self.worker.is_connected() or (self.worker._thread and self.worker._thread.is_alive()):
+            self.worker.disconnect()
+            self.btn_connect.config(text="Подключить", style="Success.TButton")
+            self._log("Отключение от ПЛК...", tag="info")
+        else:
+            if not self._apply_network_settings():
+                return
+            self.btn_connect.config(text="Отключить", style="Danger.TButton")
+            self.worker.connect()
+            self._log(f"Подключение к ПЛК {self.config.host}:{self.config.port}...", tag="info")
+
+    def _apply_network_settings(self) -> bool:
+        host = self.var_host.get().strip()
+        if not host:
+            messagebox.showerror("Ошибка", "Укажите IP-адрес контроллера.")
+            return False
+
+        try:
+            self.config.host = host
+            self.config.port = int(self.var_port.get().strip())
+            self.config.unit_id = int(self.var_unit_id.get().strip())
+            self.config.poll_interval_ms = int(self.var_poll_ms.get().strip())
+            self.config.auto_reconnect = self.var_auto_reconnect.get()
+            if not 1 <= self.config.port <= 65535 or not 0 <= self.config.unit_id <= 255:
+                raise ValueError("Порт 1..65535; Unit ID 0..255")
+            if self.config.poll_interval_ms < 20 or self.config.timeout <= 0:
+                raise ValueError("Опрос от 20 мс; таймаут должен быть положительным")
+            self.config.read_reg_address = 1
+            self.config.write_reg_address = 0
+            self.config.save()
+            self.worker.update_config(self.config)
+            return True
+        except ValueError as e:
+            messagebox.showerror("Ошибка параметров", f"Неверный формат сетевых настроек: {e}")
+            return False
+
+    def _test_connection_quick(self):
+        host = self.var_host.get().strip()
+        try:
+            port = int(self.var_port.get().strip())
+        except ValueError:
+            messagebox.showerror("Ошибка", "Порт должен быть числом.")
+            return
+
+        self._log(f"Проверка сокета {host}:{port}...", tag="info")
+        t0 = time.perf_counter()
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(2.0)
+        try:
+            res = sock.connect_ex((host, port))
+            dt = (time.perf_counter() - t0) * 1000.0
+            sock.close()
+            if res == 0:
+                self._log(f"Сокет доступен! Задержка: {dt:.1f} мс", tag="success")
+                messagebox.showinfo("Пинг успешен", f"Порт {port} на {host} открыт.\nВремя отклика: {dt:.1f} мс")
+            else:
+                self._log(f"Ошибка сокета: код {res}", tag="error")
+                messagebox.showwarning("Ошибка связи", f"Не удалось подключиться к {host}:{port}\nКод ошибки: {res}")
+        except Exception as e:
+            self._log(f"Сбой проверки: {e}", tag="error")
+            messagebox.showerror("Ошибка", f"Не удалось проверить подключение:\n{e}")
+
+    # --- Обработка событий угроз и обновление UI ---
+
+    def _show_api_catalog(self):
+        window = tk.Toplevel(self)
+        window.title("AlarmMap: официальный справочник уровней")
+        window.geometry("850x550")
+        box = tk.Text(window, wrap="word", bg=BG_INPUT, fg=TEXT_MAIN)
+        scrollbar = ttk.Scrollbar(window, command=box.yview)
+        scrollbar.pack(side="right", fill="y")
+        box.configure(yscrollcommand=scrollbar.set)
+        box.pack(fill="both", expand=True)
+        with self.threat_evaluator._lock:
+            catalog = deepcopy(self.threat_evaluator.status.alarmmap_catalog)
+        for entry in sorted(catalog, key=lambda e: (e["type"], e["level"])):
+            box.insert("end", f"{entry['type']} / {entry['level']} — {entry.get('title', '')}\n{entry.get('description', '')}\n\n")
+        if not catalog:
+            box.insert("end", "Справочник ещё не получен. Проверьте API-ключ и связь. Значение уровня не выводится из номера.")
+        box.config(state="disabled")
 
     def _open_threat_config(self):
         ThreatConfigDialog(self, self.threat_config, on_save_callback=self._on_threat_config_saved)
 
     def _on_threat_config_saved(self, new_cfg: ThreatSystemConfig):
-        self.threat_config = new_cfg
+        self._evaluator_generation += 1
         self.threat_evaluator.stop()
-        self.threat_evaluator = ThreatEvaluator(self.threat_config, on_status_change=self._on_threat_status_changed)
+        self.threat_config = new_cfg
+        self.worker.clear_control_snapshot()
+        self.threat_evaluator = ThreatEvaluator(self.threat_config,
+            on_status_change=self._status_callback(self._evaluator_generation))
+        if self._last_plc_switch_bit is not None:
+            self.threat_evaluator.set_plc_analysis_switch(self._last_plc_switch_bit)
         self.threat_evaluator.start()
-        self._log("Конфигуратор угроз: параметры обновлены и перезапущены.", tag="info")
+        self._log("Конфигуратор: девять правил обновлены.", tag="info")
 
-    def _on_threat_status_changed(self, st: ThreatStatus):
-        self.after(0, self._apply_threat_status_ui, st)
+    def _status_callback(self, generation):
+        def callback(st):
+            if self._closing or generation != self._evaluator_generation:
+                return
+            # Network thread updates transport directly; Tk is only touched on the GUI thread.
+            if self.threat_config.auto_transfer_to_plc:
+                self.worker.set_control_snapshot(st.modbus_word, [st.sound_code, st.sound_beep_count,
+                    st.sound_duration_ms, st.sound_pause_ms, st.sound_interval_ms],
+                    self.threat_config.bit_mapping.bit_heartbeat, reaction=vars(st))
+            else:
+                self.worker.clear_control_snapshot()
+            with self._status_lock:
+                self._latest_status = (generation, deepcopy(st))
+        return callback
+
+    def _on_threat_status_changed(self, st):
+        self._status_callback(self._evaluator_generation)(st)
 
     def _apply_threat_status_ui(self, st: ThreatStatus):
         lvl = st.level_code
+        self.txt_threat_reason.config(state="normal")
+        self.txt_threat_reason.delete("1.0", "end")
+        self.txt_threat_reason.insert("1.0", st.reason)
+        self.txt_threat_reason.config(state="disabled")
         self.var_threat_title.set(f" {st.level_title} ")
         self.var_threat_desc.set(f"Сектор: {self.threat_config.district.name} — {st.description}")
-        self.var_threat_word.set(f"%MW0: 0x{st.modbus_word:04X} (Бит {lvl if lvl <= 5 else 0})")
 
+        # Цвет плашки уровня
         if lvl == 0:
             self.led_threat.set_state("connected")
             self.lbl_threat_badge.config(bg="#065f46", fg="#34d399")
@@ -339,17 +893,7 @@ class ModbusApp(tk.Tk):
         else:
             self.lbl_badge_drone.pack_forget()
 
-        # Отображение текущего звукового профиля
-        if st.sound_beep_count > 0:
-            dur_s = st.sound_duration_ms / 1000.0
-            int_s = st.sound_interval_ms / 1000.0
-            self.var_threat_sound.set(f"🔊 {st.sound_profile_name} [{st.sound_beep_count} гуд. по {dur_s:.1f}с / пауза {int_s:.0f}с]")
-            self.lbl_threat_sound.config(fg="#38bdf8", bg="#1e293b")
-        else:
-            self.var_threat_sound.set(f"🔇 {st.sound_profile_name}")
-            self.lbl_threat_sound.config(fg="#94a3b8", bg="#0f172a")
-
-        # Бейдж тихого часа по расписанию
+        # Бейдж тихого часа
         if st.is_muted:
             self.var_badge_muted.set(f"🌙 ТИХИЙ ЧАС ({self.threat_config.schedule.start_time}–{self.threat_config.schedule.end_time})")
             self.lbl_badge_muted.pack(side="right", padx=2)
@@ -363,502 +907,195 @@ class ModbusApp(tk.Tk):
         else:
             self.lbl_badge_plc_sw.pack_forget()
 
-        if st.last_event_text:
-            t_str = time.strftime("%H:%M:%S", time.localtime(st.last_event_time))
-            self.var_threat_details.set(f"[{t_str}] {st.last_event_source}: {st.last_event_text[:95]}")
+        # --- Обновление выделенной карточки звукового профиля (%MW2..%MW6) ---
+        if st.sound_beep_count > 0:
+            dur_s = st.sound_duration_ms / 1000.0
+            pause_s = st.sound_pause_ms / 1000.0
+            int_s = st.sound_interval_ms / 1000.0
+            self.var_sound_title.set(f"🔊 {st.sound_profile_name}")
+            self.lbl_sound_badge.config(bg="#0284c7", fg="#ffffff")
+            self.var_sound_desc.set(
+                f"Серия: {st.sound_beep_count} имп. по {dur_s:.2f}с (пауза {pause_s:.2f}с), повтор серии каждые {int_s:.1f}с."
+            )
         else:
-            self.var_threat_details.set("Источники: AlarmMap и Telegram активны. Мониторинг 24/7.")
+            self.var_sound_title.set(f"🔇 {st.sound_profile_name}")
+            self.lbl_sound_badge.config(bg="#334155", fg="#94a3b8")
+            self.var_sound_desc.set("Команда: генерация импульсов отключена; состояние реле не считывается.")
 
-        # Автоматическая передача слова тревоги (%MW0) и динамического звукового профиля (%MW2..%MW6) в ПЛК
-        if self.threat_config.auto_transfer_to_plc:
-            target_val = st.modbus_word & 0xFFFF
-            self._update_write_views(target_val, source="threat_engine")
-            if self.worker.is_connected():
-                # 1. Запись слова тревоги %MW0
-                self.worker.queue_write(target_val, address=self.config.write_reg_address)
-                # 2. Запись звукового профиля гудков в %MW2..%MW6:
-                #    %MW2: Код профиля
-                #    %MW3: Кол-во гудков
-                #    %MW4: Длительность гудка (мс)
-                #    %MW5: Пауза между гудками (мс)
-                #    %MW6: Пауза между сериями гудков (мс)
-                sound_regs = [
-                    st.sound_code & 0xFFFF,
-                    st.sound_beep_count & 0xFFFF,
-                    st.sound_duration_ms & 0xFFFF,
-                    st.sound_pause_ms & 0xFFFF,
-                    st.sound_interval_ms & 0xFFFF
-                ]
-                self.worker.queue_write_registers(sound_regs, start_address=2)
-
-    def _build_network_panel(self, parent):
-        card = tk.LabelFrame(
-            parent,
-            text="  Сетевая конфигурация Modbus TCP  ",
-            bg=BG_CARD,
-            fg=TEXT_ACCENT,
-            font=FONT_SUBTITLE,
-            bd=1,
-            relief="solid",
-            padx=10,
-            pady=8
-        )
-        card.pack(fill="x", pady=(0, 6))
-
-        row1 = tk.Frame(card, bg=BG_CARD)
-        row1.pack(fill="x", pady=2)
-
-        # IP адрес
-        tk.Label(row1, text="IP-адрес:", font=FONT_BOLD, bg=BG_CARD, fg=TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.entry_host = ttk.Entry(row1, textvariable=self.var_host, width=15)
-        self.entry_host.pack(side="left", padx=(0, 14))
-
-        # Порт
-        tk.Label(row1, text="Порт:", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.entry_port = ttk.Entry(row1, textvariable=self.var_port, width=7)
-        self.entry_port.pack(side="left", padx=(0, 14))
-
-        # Slave ID
-        tk.Label(row1, text="Unit ID:", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.entry_unit_id = ttk.Entry(row1, textvariable=self.var_unit_id, width=5)
-        self.entry_unit_id.pack(side="left", padx=(0, 14))
-
-        # Период опроса
-        tk.Label(row1, text="Опрос (мс):", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.entry_poll = ttk.Entry(row1, textvariable=self.var_poll_ms, width=6)
-        self.entry_poll.pack(side="left", padx=(0, 14))
-
-        # Авто-переподключение
-        chk_recon = ttk.Checkbutton(row1, text="Авто-повтор", variable=self.var_auto_reconnect)
-        chk_recon.pack(side="left", padx=(0, 14))
-
-        # Кнопки управления
-        self.btn_connect = ttk.Button(
-            row1,
-            text="Подключить",
-            style="Success.TButton",
-            command=self._toggle_connection
-        )
-        self.btn_connect.pack(side="right", padx=(6, 0))
-
-        btn_ping = ttk.Button(
-            row1,
-            text="Проверить пинг",
-            style="Outline.TButton",
-            command=self._test_connection_quick
-        )
-        btn_ping.pack(side="right", padx=(6, 0))
-
-    def _build_write_card(self, parent):
-        card = tk.LabelFrame(
-            parent,
-            text="  ПЕРЕДАЧА В ПЛК (ПК  ➔  ПЛК)  ",
-            bg=BG_CARD,
-            fg="#60a5fa",
-            font=FONT_SUBTITLE,
-            bd=1,
-            relief="solid",
-            padx=10,
-            pady=8
-        )
-        card.grid(row=0, column=0, sticky="nsew", padx=(0, 5))
-
-        # Строка 1: Регистр назначения
-        reg_row = tk.Frame(card, bg=BG_CARD)
-        reg_row.pack(fill="x", pady=(0, 6))
-
-        tk.Label(reg_row, text="Регистр ПЛК:", font=FONT_BOLD, bg=BG_CARD, fg=TEXT_MAIN).pack(side="left", padx=(0, 4))
-        tk.Label(reg_row, text="%MW", font=FONT_BOLD, bg=BG_CARD, fg=TEXT_ACCENT).pack(side="left")
-        self.entry_w_addr = ttk.Entry(reg_row, textvariable=self.var_write_addr, width=6)
-        self.entry_w_addr.pack(side="left", padx=(2, 10))
-
-        chk_cyclic = ttk.Checkbutton(
-            reg_row,
-            text="Циклически",
-            variable=self.var_cyclic_write,
-            command=self._on_cyclic_write_toggle
-        )
-        chk_cyclic.pack(side="right")
-
-        chk_change = ttk.Checkbutton(
-            reg_row,
-            text="При изменении",
-            variable=self.var_write_on_change
-        )
-        chk_change.pack(side="right", padx=(0, 8))
-
-        # Строка 2: Ввод значения DEC и HEX
-        val_row = tk.Frame(card, bg=BG_CARD)
-        val_row.pack(fill="x", pady=(4, 6))
-
-        tk.Label(val_row, text="DEC (0..65535):", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.entry_w_dec = ttk.Entry(val_row, textvariable=self.var_write_val_dec, width=10, font=FONT_MONO)
-        self.entry_w_dec.pack(side="left", padx=(0, 10))
-        self.entry_w_dec.bind("<KeyRelease>", self._on_dec_input_change)
-
-        tk.Label(val_row, text="HEX:", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MAIN).pack(side="left", padx=(0, 4))
-        self.entry_w_hex = ttk.Entry(val_row, textvariable=self.var_write_val_hex, width=9, font=FONT_MONO)
-        self.entry_w_hex.pack(side="left", padx=(0, 10))
-        self.entry_w_hex.bind("<KeyRelease>", self._on_hex_input_change)
-
-        # Кнопка ручной отправки
-        self.btn_send = ttk.Button(
-            val_row,
-            text="Отправить ➔",
-            style="TButton",
-            command=self._send_write_value
-        )
-        self.btn_send.pack(side="right")
-
-        # Строка 3: Интерактивная панель битов 0..15
-        tk.Label(card, text="Битовое слово (клик для переключения бит 15..0):", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MUTED).pack(anchor="w", pady=(4, 2))
-        self.write_bits_widget = WordBitsWidget(card, editable=True, on_change=self._on_bits_widget_changed)
-        self.write_bits_widget.pack(fill="x", pady=(0, 6))
-
-        # Строка 4: Быстрые действия
-        act_row = tk.Frame(card, bg=BG_CARD)
-        act_row.pack(fill="x", pady=2)
-
-        ttk.Button(act_row, text="0x0000", style="Outline.TButton", width=7, command=lambda: self._set_write_val(0)).pack(side="left", padx=2)
-        ttk.Button(act_row, text="0xFFFF", style="Outline.TButton", width=7, command=lambda: self._set_write_val(0xFFFF)).pack(side="left", padx=2)
-        ttk.Button(act_row, text="+1", style="Outline.TButton", width=4, command=lambda: self._adjust_write_val(1)).pack(side="left", padx=2)
-        ttk.Button(act_row, text="-1", style="Outline.TButton", width=4, command=lambda: self._adjust_write_val(-1)).pack(side="left", padx=2)
-
-        # Статус отправки
-        self.lbl_write_status = tk.Label(act_row, text="Готово к отправке", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MUTED)
-        self.lbl_write_status.pack(side="right", padx=4)
-
-    def _build_read_card(self, parent):
-        card = tk.LabelFrame(
-            parent,
-            text="  ПРИЕМ ИЗ ПЛК (ПЛК  ➔  ПК)  ",
-            bg=BG_CARD,
-            fg="#34d399",
-            font=FONT_SUBTITLE,
-            bd=1,
-            relief="solid",
-            padx=10,
-            pady=8
-        )
-        card.grid(row=0, column=1, sticky="nsew", padx=(5, 0))
-
-        # Строка 1: Регистр источника
-        reg_row = tk.Frame(card, bg=BG_CARD)
-        reg_row.pack(fill="x", pady=(0, 4))
-
-        tk.Label(reg_row, text="Регистр ПЛК:", font=FONT_BOLD, bg=BG_CARD, fg=TEXT_MAIN).pack(side="left", padx=(0, 4))
-        tk.Label(reg_row, text="%MW", font=FONT_BOLD, bg=BG_CARD, fg=COLOR_SUCCESS).pack(side="left")
-        self.entry_r_addr = ttk.Entry(reg_row, textvariable=self.var_read_addr, width=6)
-        self.entry_r_addr.pack(side="left", padx=(2, 10))
-
-        self.lbl_read_stamp = tk.Label(reg_row, textvariable=self.var_read_time, font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MUTED)
-        self.lbl_read_stamp.pack(side="right")
-
-        # Строка 2: Крупное табло значения
-        display_frame = tk.Frame(card, bg=BG_INPUT, bd=1, relief="solid", padx=8, pady=4)
-        display_frame.pack(fill="x", pady=(2, 6))
-
-        d_top = tk.Frame(display_frame, bg=BG_INPUT)
-        d_top.pack(fill="x")
-
-        # Большое значение DEC
-        lbl_dec = tk.Label(
-            d_top,
-            textvariable=self.var_read_dec_u,
-            font=FONT_VALUE_BIG,
-            fg=COLOR_SUCCESS,
-            bg=BG_INPUT
-        )
-        lbl_dec.pack(side="left", padx=4)
-
-        d_details = tk.Frame(d_top, bg=BG_INPUT)
-        d_details.pack(side="right", padx=4)
-
-        tk.Label(d_details, text="HEX:", font=FONT_BOLD, fg=TEXT_MUTED, bg=BG_INPUT).grid(row=0, column=0, sticky="e", padx=4)
-        tk.Label(d_details, textvariable=self.var_read_hex, font=FONT_MONO, fg=TEXT_MAIN, bg=BG_INPUT).grid(row=0, column=1, sticky="w")
-
-        tk.Label(d_details, text="Signed:", font=FONT_BOLD, fg=TEXT_MUTED, bg=BG_INPUT).grid(row=1, column=0, sticky="e", padx=4)
-        tk.Label(d_details, textvariable=self.var_read_dec_s, font=FONT_MONO, fg=TEXT_MAIN, bg=BG_INPUT).grid(row=1, column=1, sticky="w")
-
-        # Двоичное представление текстом
-        d_bin = tk.Frame(display_frame, bg=BG_INPUT)
-        d_bin.pack(fill="x", pady=(2, 0))
-        tk.Label(d_bin, text="BIN:", font=FONT_BOLD, fg=TEXT_MUTED, bg=BG_INPUT).pack(side="left", padx=4)
-        tk.Label(d_bin, textvariable=self.var_read_bin, font=FONT_MONO, fg=TEXT_ACCENT, bg=BG_INPUT).pack(side="left")
-
-        # Строка 3: Индикация бит 0..15 (лампы)
-        tk.Label(card, text="Битовое состояние (индикаторы бит 15..0):", font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MUTED).pack(anchor="w", pady=(4, 2))
-        self.read_bits_widget = WordBitsWidget(card, editable=False)
-        self.read_bits_widget.pack(fill="x", pady=(0, 4))
-
-        # Строка 4: Статус обратной связи от ПЛК (кнопка сброса и работа)
-        fb_frame = tk.Frame(card, bg=BG_CARD)
-        fb_frame.pack(fill="x", pady=(2, 0))
-        self.lbl_plc_feedback = tk.Label(
-            fb_frame,
-            textvariable=self.var_plc_feedback_text,
-            font=FONT_BOLD,
-            bg=BG_CARD,
-            fg="#38bdf8"
-        )
-        self.lbl_plc_feedback.pack(side="left")
-
-    def _build_log_panel(self, parent):
-        log_frame = tk.LabelFrame(
-            parent,
-            text="  Журнал обмена и статистика  ",
-            bg=BG_CARD,
-            fg=TEXT_MAIN,
-            font=FONT_SUBTITLE,
-            bd=1,
-            relief="solid",
-            padx=10,
-            pady=6
-        )
-        log_frame.pack(fill="both", expand=True)
-
-        # Текстовое поле для лога
-        text_container = tk.Frame(log_frame, bg=BG_CARD)
-        text_container.pack(fill="both", expand=True)
-
-        self.txt_log = tk.Text(
-            text_container,
-            height=8,
-            bg=BG_INPUT,
-            fg=TEXT_MAIN,
-            font=FONT_MONO,
-            relief="flat",
-            bd=0,
-            padx=6,
-            pady=4,
-            wrap="none"
-        )
-        scrollbar_y = ttk.Scrollbar(text_container, orient="vertical", command=self.txt_log.yview)
-        self.txt_log.configure(yscrollcommand=scrollbar_y.set)
-
-        self.txt_log.pack(side="left", fill="both", expand=True)
-        scrollbar_y.pack(side="right", fill="y")
-
-        # Теги стилей для лога
-        self.txt_log.tag_config("info", foreground=TEXT_MAIN)
-        self.txt_log.tag_config("success", foreground=COLOR_SUCCESS)
-        self.txt_log.tag_config("error", foreground=COLOR_DANGER)
-        self.txt_log.tag_config("warn", foreground=COLOR_WARNING)
-        self.txt_log.tag_config("time", foreground=TEXT_MUTED)
-
-        # Подвал лога: статистика и кнопки
-        bottom_row = tk.Frame(log_frame, bg=BG_CARD)
-        bottom_row.pack(fill="x", pady=(6, 0))
-
-        lbl_stats = tk.Label(bottom_row, textvariable=self.var_stats_text, font=FONT_REGULAR, bg=BG_CARD, fg=TEXT_MUTED)
-        lbl_stats.pack(side="left")
-
-        ttk.Button(bottom_row, text="Очистить лог", style="Outline.TButton", command=self._clear_log).pack(side="right", padx=(4, 0))
-        ttk.Checkbutton(bottom_row, text="Автопрокрутка", variable=self.var_autoscroll).pack(side="right", padx=(4, 8))
-
-    # --- Обработка ввода значений записи ---
-
-    def _on_reg_addrs_changed(self, *args):
-        try:
-            self.config.write_reg_address = int(self.var_write_addr.get().strip())
-        except ValueError:
-            pass
-        try:
-            self.config.read_reg_address = int(self.var_read_addr.get().strip())
-        except ValueError:
-            pass
-
-    def _on_dec_input_change(self, event=None):
-        if self._updating_write_inputs:
-            return
-        val_str = self.var_write_val_dec.get().strip()
-        try:
-            val = int(val_str)
-            if 0 <= val <= 65535:
-                self._update_write_views(val, source="dec")
-                if self.var_write_on_change.get() and val != self._last_sent_val and self.worker.is_connected():
-                    self._send_write_value()
-        except ValueError:
-            pass
-
-    def _on_hex_input_change(self, event=None):
-        if self._updating_write_inputs:
-            return
-        hex_str = self.var_write_val_hex.get().strip()
-        try:
-            val = int(hex_str, 16)
-            if 0 <= val <= 65535:
-                self._update_write_views(val, source="hex")
-                if self.var_write_on_change.get() and val != self._last_sent_val and self.worker.is_connected():
-                    self._send_write_value()
-        except ValueError:
-            pass
-
-    def _on_bits_widget_changed(self, new_val: int):
-        self._update_write_views(new_val, source="bits")
-        if self.var_write_on_change.get() and new_val != self._last_sent_val and self.worker.is_connected():
-            self._send_write_value()
-
-    def _set_write_val(self, val: int):
-        self._update_write_views(val & 0xFFFF)
-        if self.var_write_on_change.get() and self.worker.is_connected():
-            self._send_write_value()
-
-    def _adjust_write_val(self, delta: int):
-        try:
-            curr = int(self.var_write_val_dec.get())
-        except ValueError:
-            curr = 0
-        new_val = (curr + delta) & 0xFFFF
-        self._set_write_val(new_val)
-
-    def _update_write_views(self, val: int, source: str = "all"):
-        self._updating_write_inputs = True
-        val = val & 0xFFFF
-        if source != "dec":
-            self.var_write_val_dec.set(str(val))
-        if source != "hex":
-            self.var_write_val_hex.set(f"0x{val:04X}")
-        if source != "bits":
-            self.write_bits_widget.set_value(val)
-        self.worker.current_write_val = val
-        self._updating_write_inputs = False
-
-    def _on_cyclic_write_toggle(self):
-        enabled = self.var_cyclic_write.get()
-        try:
-            val = int(self.var_write_val_dec.get())
-        except ValueError:
-            val = 0
-        self.worker.set_cyclic_write(enabled, val)
-        mode_text = "включена" if enabled else "выключена"
-        self._log(f"Циклическая запись {mode_text}", tag="info")
-
-    def _send_write_value(self):
-        try:
-            val = int(self.var_write_val_dec.get())
-            if not (0 <= val <= 65535):
-                raise ValueError()
-        except ValueError:
-            messagebox.showwarning("Ошибка ввода", "Введите число от 0 до 65535.")
-            return
-
-        try:
-            target_addr = int(self.var_write_addr.get().strip())
-        except ValueError:
-            target_addr = 0
-
-        self._last_sent_val = val
-        self.worker.queue_write(val, target_addr)
-        self.lbl_write_status.config(text=f"Отправка: {val} (0x{val:04X})...", fg=TEXT_ACCENT)
-
-    # --- Управление соединением ---
-
-    def _toggle_connection(self):
-        if self.worker.is_connected() or (self.worker._thread and self.worker._thread.is_alive()):
-            # Отключение
-            self.worker.stop()
-            self.btn_connect.config(text="Подключить", style="Success.TButton")
-            self._set_inputs_state(True)
-            self._log("Отключение по запросу пользователя.", tag="info")
+        # Статус выходного реле звука
+        if st.analysis_disabled_by_plc:
+            self.var_sound_relay_state.set("ОТКЛЮЧЕНО ПЛК")
+            self.lbl_sound_relay.config(bg="#451a03", fg="#f59e0b")
+        elif st.is_muted:
+            self.var_sound_relay_state.set("MUTE (ТИХИЙ ЧАС)")
+            self.lbl_sound_relay.config(bg="#1e1b4b", fg="#a5b4fc")
+        elif st.sound_beep_count > 0:
+            self.var_sound_relay_state.set("КОМАНДА: ЗВУК")
+            self.lbl_sound_relay.config(bg="#7f1d1d", fg="#fca5a5")
         else:
-            # Применение настроек и запуск
-            if not self._apply_settings():
-                return
-            self._set_inputs_state(False)
-            self.btn_connect.config(text="Отключить", style="Danger.TButton")
-            self.worker.start()
+            self.var_sound_relay_state.set("ДЕЖУРНЫЙ РЕЖИМ")
+            self.lbl_sound_relay.config(bg="#065f46", fg="#34d399")
 
-    def _apply_settings(self) -> bool:
-        host = self.var_host.get().strip()
-        if not host:
-            messagebox.showerror("Ошибка", "Укажите IP-адрес контроллера.")
-            return False
+        # Мини-карточки регистров %MW2..%MW6
+        self.var_sound_code.set(str(st.sound_code))
+        self.var_sound_beeps.set(f"{st.sound_beep_count} шт")
+        self.var_sound_dur.set(f"{st.sound_duration_ms} мс")
+        self.var_sound_pause.set(f"{st.sound_pause_ms} мс")
+        self.var_sound_interval.set(f"{st.sound_interval_ms} мс")
 
-        try:
-            port = int(self.var_port.get().strip())
-            unit_id = int(self.var_unit_id.get().strip())
-            poll_ms = int(self.var_poll_ms.get().strip())
-            timeout = float(self.var_timeout.get().strip())
-            w_addr = int(self.var_write_addr.get().strip())
-            r_addr = int(self.var_read_addr.get().strip())
-        except ValueError:
-            messagebox.showerror("Ошибка", "Проверьте числовые параметры (порт, Unit ID, период, адреса).")
-            return False
+        # --- Обновление карточки Источника 1: API alarmmap.online ---
+        self.led_api.set_state("connected" if st.alarmmap_online else ("connecting" if self.threat_config.alarmmap_enabled else "error"))
+        self.var_api_status.set("Онлайн (API активен)" if st.alarmmap_online else ("Отключено" if not self.threat_config.alarmmap_enabled else "Ошибка связи"))
+        self.lbl_api_status.config(fg=COLOR_SUCCESS if st.alarmmap_online else COLOR_DANGER)
 
-        self.config.host = host
-        self.config.port = port
-        self.config.unit_id = unit_id
-        self.config.poll_interval_ms = poll_ms
-        self.config.timeout = timeout
-        self.config.auto_reconnect = self.var_auto_reconnect.get()
-        self.config.write_reg_address = w_addr
-        self.config.read_reg_address = r_addr
-        self.config.cyclic_write = self.var_cyclic_write.get()
-        self.config.write_on_change = self.var_write_on_change.get()
-        try:
-            self.config.last_write_value = int(self.var_write_val_dec.get())
-        except ValueError:
-            self.config.last_write_value = 0
+        if st.alarmmap_last_poll_time > 0:
+            t_poll = time.strftime("%H:%M:%S", time.localtime(st.alarmmap_last_poll_time))
+            self.var_api_poll_time.set(f"Опрос: {t_poll}")
+        else:
+            self.var_api_poll_time.set("Опрос: каждые 15с")
 
-        self.config.save()
-        return True
+        # Статус тревоги API
+        is_api_alarm = st.alarmmap_active_count > 0
+        if not st.alarmmap_online:
+            self.var_api_alarm_badge.set("НЕТ АКТУАЛЬНОЙ СВЯЗИ" if self.threat_config.alarmmap_enabled else "API ОТКЛЮЧЕН")
+            self.lbl_api_alarm_badge.config(bg="#78350f", fg="#fde047")
+        elif is_api_alarm:
+            clean_badge = st.alarmmap_status_text.replace("🔴 ", "").replace("🟠 ", "").replace("🟡 ", "")
+            self.var_api_alarm_badge.set(f"🔴 {clean_badge}")
+            self.lbl_api_alarm_badge.config(bg="#7f1d1d", fg="#fca5a5")
+        else:
+            self.var_api_alarm_badge.set("🟢 ТРЕВОГА НЕ ОБЪЯВЛЕНА")
+            self.lbl_api_alarm_badge.config(bg="#065f46", fg="#34d399")
 
-    def _set_inputs_state(self, enabled: bool):
-        st = "normal" if enabled else "disabled"
-        self.entry_host.config(state=st)
-        self.entry_port.config(state=st)
-        self.entry_unit_id.config(state=st)
-        self.entry_poll.config(state=st)
+        types_str = st.alarmmap_types_summary or ("нет активных записей" if st.alarmmap_online else "актуальные данные недоступны")
+        self.var_api_types.set(f"Типы и уровни API: {types_str or 'активных записей нет'}")
+        self.var_api_full_text.set(st.alarmmap_full_text if st.alarmmap_full_text else "Данные API получены. Угроз по территории не зафиксировано.")
 
-    def _test_connection_quick(self):
-        host = self.var_host.get().strip()
-        try:
-            port = int(self.var_port.get().strip())
-        except ValueError:
-            port = 502
+        # --- Обновление карточки Источника 2: Telegram Мониторинг ---
+        self.led_tg.set_state("connected" if st.tg_online else "connecting")
+        ch_list_str = ", ".join(f"@{c}" for c in self.threat_config.telegram_channels[:2])
+        tg_health = "Онлайн" if st.tg_online else "Нет связи / часть каналов недоступна"
+        if not self.threat_config.telegram_enabled:
+            tg_health = "Отключено"
+        self.var_tg_status.set(f"{tg_health} ({st.tg_mode.upper()}: {ch_list_str})")
+        self.lbl_tg_status.config(fg=COLOR_SUCCESS if st.tg_online else COLOR_WARNING)
 
-        self._log(f"Проверка сетевого сокета {host}:{port}...", tag="info")
-        t0 = time.perf_counter()
-        try:
-            s = socket.create_connection((host, port), timeout=2.0)
-            s.close()
-            dt = (time.perf_counter() - t0) * 1000
-            self._log(f"Соединение успешно! Порт {port} открыт на {host} (время отклика: {dt:.1f} мс)", tag="success")
-            messagebox.showinfo("Проверка связи", f"Контроллер доступен!\nIP: {host}:{port}\nОтклик сокета: {dt:.1f} мс")
-        except Exception as e:
-            self._log(f"Сбой соединения с {host}:{port}: {e}", tag="error")
-            messagebox.showerror("Проверка связи", f"Не удалось подключиться к {host}:{port}\nОшибка: {e}")
+        if st.tg_last_msg_time > 0:
+            t_post = time.strftime("%H:%M:%S", time.localtime(st.tg_last_msg_time))
+            self.var_tg_last_post.set(f"Пост: {t_post}")
+        else:
+            self.var_tg_last_post.set("Ожидание постов...")
 
-    # --- Обработка сообщений из очереди воркера ---
+        # Угрозы городу и району из Telegram
+        city_desc = "Нет совпавшего правила"
+        if st.tg_city_level > 0:
+            city_type_str = "Ракета" if st.tg_city_threat == "rocket" else ("КАБ" if st.tg_city_threat == "kab" else ("БпЛА" if st.tg_city_threat == "drone" else "Тревога"))
+            city_desc = f"{ {1: 'Низкая', 2: 'Высокая', 3: 'Высокая', 4: 'Критическая', 5: 'Критическая'}.get(st.tg_city_level, '')} ({city_type_str}) [осталось {st.tg_city_ttl_remain_s}с]"
+        self.var_tg_city.set(f"🏙️ Город: {city_desc}")
+
+        dist_desc = "Нет совпавшего правила"
+        if st.tg_district_level > 0:
+            lm_str = f" [{st.tg_district_landmarks}]" if st.tg_district_landmarks else ""
+            dist_type_str = "КАБ" if st.tg_district_threat == "kab" else ("БпЛА" if st.tg_district_threat == "drone" else "Ракета")
+            dist_desc = f"{ {1: 'Низкая', 2: 'Высокая', 3: 'Высокая', 4: 'Критическая', 5: 'Критическая'}.get(st.tg_district_level, '')} ({dist_type_str}){lm_str} [осталось {st.tg_district_ttl_remain_s}с]"
+        self.var_tg_district.set(f"🎯 Сектор: {dist_desc}")
+
+        # Дроны
+        if st.tg_drone_name:
+            self.var_tg_drones.set(f"🛸 БпЛА: {st.tg_drone_name.upper()} (Группа {st.tg_drone_group}: {'Ударный' if st.tg_drone_group == 1 else ('Тактический' if st.tg_drone_group == 2 else 'Ложная цель')})")
+        else:
+            self.var_tg_drones.set("🛸 БпЛА: активных воздушных целей не зафиксировано")
+
+        # --- Обновление битовой матрицы %MW0 (ПК ➔ ПЛК) ---
+        self.var_mw0_info.set(f"Слово управления %MW0: 0x{st.modbus_word:04X} (DEC: {st.modbus_word})")
+        self.bits_mw0.set_value(st.modbus_word)
+
+        # --- Обновление списка значимых оперативных сообщений Telegram ---
+        self._render_significant_events(st.significant_events)
+
+    def _render_significant_events(self, events: List[SignificantEvent]):
+        """Отрисовка отфильтрованных значимых оперативных сообщений с цветными тегами."""
+        self.txt_tg_events.delete("1.0", "end")
+        if not events:
+            self.txt_tg_events.insert("end", "Ожидание оперативных сообщений по обстановке...\n", "time")
+            return
+
+        for ev in events:
+            # Время
+            self.txt_tg_events.insert("end", f"[{ev.time_str}] ", "time")
+            # Канал
+            self.txt_tg_events.insert("end", f"@{ev.channel} ", "channel")
+
+            # Бейдж угрозы
+            b_tag = "badge_clear" if ev.category == "clear" else (
+                "badge_rocket" if ev.category == "rocket" else (
+                    "badge_kab" if ev.category == "kab" else (
+                        "badge_drone" if ev.category == "drone" else (
+                            "badge_shelter" if ev.category == "shelter" else "channel"
+                        )
+                    )
+                )
+            )
+            self.txt_tg_events.insert("end", f"[{ev.badge_threat}] ", b_tag)
+
+            # Бейдж цели / сектора
+            if ev.badge_target:
+                self.txt_tg_events.insert("end", f"[{ev.badge_target}] ", "badge_target")
+
+            # Текст
+            txt_style = "critical_text" if ev.is_critical else "msg_text"
+            self.txt_tg_events.insert("end", f"{ev.text}\n", txt_style)
+
+        if self.var_tg_autoscroll.get():
+            self.txt_tg_events.see("1.0")
+
+    def _clear_tg_events(self):
+        self.txt_tg_events.delete("1.0", "end")
+
+    # --- Обработка событий от фонового потока воркера ---
 
     def _process_events(self):
+        if self._closing:
+            return
+        with self._status_lock:
+            latest, self._latest_status = self._latest_status, None
+        if latest and latest[0] == self._evaluator_generation:
+            self._apply_threat_status_ui(latest[1])
         try:
             while True:
                 item = self.event_queue.get_nowait()
-                ev_type = item.get("type")
-                data = item.get("data", {})
+                if isinstance(item, dict):
+                    ev_type = item.get("type")
+                    data = item.get("data", {})
+                elif isinstance(item, tuple):
+                    ev_type, data = item[0], item[1]
+                else:
+                    continue
 
                 if ev_type == "status":
                     state = data.get("state")
-                    msg = data.get("message")
+                    msg = data.get("message") or data.get("msg", "")
                     self.led_indicator.set_state(state)
+                    if state != "connected":
+                        self._update_analysis_indicator()
+
                     if state == "connected":
                         self.lbl_status.config(text="На связи", fg=COLOR_SUCCESS)
                         self.var_status_text.set("На связи")
+                        self.btn_connect.config(text="Отключить", style="Danger.TButton")
                         self._log(msg, tag="success")
                     elif state == "connecting":
                         self.lbl_status.config(text="Подключение...", fg=COLOR_WARNING)
                         self.var_status_text.set("Подключение...")
-                        self.var_read_time.set("Связь прервана, ожидание ответа ПЛК...")
+                        self.var_mw1_info.set("Связь прервана, ожидание ответа ПЛК...")
+                        self.var_plc_delivery.set("Команда ПЛК: связь отсутствует, подтверждение ожидается")
                         self._log(msg, tag="warn")
                     else:
                         self.lbl_status.config(text="Отключено", fg=COLOR_DANGER)
                         self.var_status_text.set("Отключено")
-                        self.var_read_time.set("Нет связи с ПЛК")
+                        self.var_mw1_info.set("Нет связи с ПЛК")
                         self._log(msg, tag="error")
                         self.btn_connect.config(text="Подключить", style="Success.TButton")
-                        self._set_inputs_state(True)
 
                 elif ev_type == "read_ok":
                     val = data.get("value", 0)
@@ -874,10 +1111,11 @@ class ModbusApp(tk.Tk):
                     is_reset_high = bool((val >> bit_reset) & 1)
                     is_run_high = bool((val >> bit_run) & 1)
                     is_sw_high = bool((val >> bit_sw) & 1)
+                    self._update_analysis_indicator(is_sw_high)
 
                     # Фронт кнопки сброса тревоги от ПЛК (0 -> 1)
                     if is_reset_high and not self._last_plc_reset_bit:
-                        self._log(f"[ПЛК] Нажата кнопка сброса тревоги (%MW{addr}, Бит {bit_reset}). Сброс тревоги и перезапуск анализа.", tag="warn")
+                        self._log(f"[ПЛК] Нажата кнопка сброса тревоги (%MW{addr}, Бит {bit_reset}). Сброс тревоги.", tag="warn")
                         self.threat_evaluator.reset_threat_state(source=f"Кнопка сброса ПЛК (%MW{addr}: Бит {bit_reset})")
                     self._last_plc_reset_bit = is_reset_high
 
@@ -888,41 +1126,30 @@ class ModbusApp(tk.Tk):
                         self.threat_evaluator.set_plc_analysis_switch(is_sw_high)
                         self._last_plc_switch_bit = is_sw_high
 
-                    # Обновление строки статуса ПЛК
+                    # Формирование строки статуса %MW1
                     run_txt = "В РАБОТЕ" if is_run_high else "ОСТАНОВЛЕН"
-                    run_color = COLOR_SUCCESS if is_run_high else COLOR_WARNING
-                    sw_txt = "АНАЛИЗ ВКЛ" if is_sw_high else "АНАЛИЗ ВЫКЛ"
-                    self.lbl_plc_feedback.config(fg=run_color)
-                    self.var_plc_feedback_text.set(
-                        f"ПЛК: {run_txt} (Бит {bit_run}) | Тумблер: {sw_txt} (Бит {bit_sw}) | Сброс: {'[НАЖАТА]' if is_reset_high else 'ОТЖАТА'} (Бит {bit_reset})"
+                    sw_txt = "ТУМБЛЕР ВКЛ" if is_sw_high else "ТУМБЛЕР ВЫКЛ"
+                    rst_txt = "[СБРОС НАЖАТ]" if is_reset_high else "СБРОС ОТЖАТ"
+                    self.var_mw1_info.set(
+                        f"Слово обратной связи %MW1: 0x{val:04X} (DEC: {val}) | RTT: {lat:.1f} мс | ПЛК: {run_txt} | {sw_txt} | {rst_txt}"
                     )
+                    self.lbl_mw1_info.config(fg=COLOR_SUCCESS if is_run_high else COLOR_WARNING)
 
-                    # Обновляем табло
-                    self.var_read_dec_u.set(str(val))
-                    signed_val = val if val < 32768 else val - 65536
-                    self.var_read_dec_s.set(str(signed_val))
-                    self.var_read_hex.set(f"0x{val:04X}")
-                    
-                    bin_raw = f"{val:016b}"
-                    bin_formatted = f"{bin_raw[0:4]} {bin_raw[4:8]} {bin_raw[8:12]} {bin_raw[12:16]}"
-                    self.var_read_bin.set(bin_formatted)
-                    self.var_read_time.set(f"Обновлено: {now_str} ({lat:.1f} мс)")
+                    # Обновление светодиодной матрицы бит %MW1
+                    self.bits_mw1.set_value(val)
 
-                    self.read_bits_widget.set_value(val)
+                elif ev_type == "control_ack":
+                    self.var_plc_delivery.set(f"ПЛК подтвердил: %MW0=0x{data['word']:04X}; %MW2..%MW6={data['sound']}")
+                    if data.get("changed"):
+                        self.threat_evaluator.audit_logger.log_plc_confirmation(data)
+                    self._last_control_ack = data
 
                 elif ev_type == "write_ok":
-                    val = data.get("value", 0)
-                    addr = data.get("address", 0)
-                    lat = data.get("latency_ms", 0)
-                    self.lbl_write_status.config(
-                        text=f"Записано: %MW{addr} = {val} ({lat:.1f} мс)",
-                        fg=COLOR_SUCCESS
-                    )
+                    pass
 
                 elif ev_type == "error":
-                    msg = data.get("msg", "")
+                    msg = data.get("message") or data.get("msg", "")
                     self._log(msg, tag="error")
-                    self.lbl_write_status.config(text="Ошибка отправки", fg=COLOR_DANGER)
 
                 elif ev_type == "stats":
                     tot = data.get("total", 0)
@@ -933,12 +1160,10 @@ class ModbusApp(tk.Tk):
         except queue.Empty:
             pass
 
-        # Планируем следующий вызов
         self.after(40, self._process_events)
 
     def _log(self, message: str, tag: str = "info"):
         t_str = datetime.now().strftime("%H:%M:%S.%f")[:-3]
-        line = f"[{t_str}] {message}\n"
         self.txt_log.insert("end", f"[{t_str}] ", "time")
         self.txt_log.insert("end", f"{message}\n", tag)
         if self.var_autoscroll.get():
@@ -948,9 +1173,19 @@ class ModbusApp(tk.Tk):
         self.txt_log.delete("1.0", "end")
 
     def _on_close(self):
+        self._closing = True
         try:
             self.threat_evaluator.stop()
         except Exception:
             pass
         self.worker.stop()
         self.destroy()
+
+
+def main():
+    app = ModbusApp()
+    app.mainloop()
+
+
+if __name__ == "__main__":
+    main()

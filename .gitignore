@@ -36,4 +36,10 @@ API/
 *.session
 *.session-journal
 
+# Local public-history datasets and generated algorithm reports
+logs/telegram_*.json*
+logs/alarmmap_*_reference.json
+test_results/
 
+# Machine Expert diagnostic log
+depurlog.schn

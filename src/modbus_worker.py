@@ -1,289 +1,227 @@
-import time
-import threading
+"""Modbus transport with coalesced control snapshots and independent heartbeat."""
+from copy import deepcopy
 import queue
-from typing import Optional, Callable
+import threading
+import time
 from pymodbus.client import ModbusTcpClient
 from src.config import AppConfig
 
-class ModbusWorker:
-    """
-    Фоновый рабочий поток для циклического обмена Modbus TCP с ПЛК TM221.
-    Позволяет непрерывно читать %MW регистр и записывать %MW регистр.
-    """
-    def __init__(self, config: AppConfig, event_queue: queue.Queue):
-        self.config = config
-        self.event_queue = event_queue
-        
-        self._thread: Optional[threading.Thread] = None
-        self._stop_event = threading.Event()
-        self._write_queue = queue.Queue()
-        self._connected = False
-        
-        # Статистика
-        self.total_requests = 0
-        self.successful_requests = 0
-        self.failed_requests = 0
-        self.last_latency_ms = 0.0
 
-        # Текущее значение для циклической записи
-        self.current_write_val: int = config.last_write_value
-        self.cyclic_write_enabled: bool = config.cyclic_write
+class ModbusWorker:
+    def __init__(self, config: AppConfig, event_queue):
+        self.config, self.event_queue = config, event_queue
+        self._thread = self._client = None
+        self._stop_event = threading.Event()
+        self._lock = threading.Lock()
+        self._write_queue = queue.Queue(maxsize=100)
+        self._connected = False
+        self.total_requests = self.successful_requests = self.failed_requests = 0
+        self.last_latency_ms = 0.0
+        self.current_write_val = config.last_write_value
+        self.cyclic_write_enabled = config.cyclic_write
+        self._control = None
+        self._revision = 0
 
     def start(self):
-        """Запуск фонового потока соединения и обмена."""
         if self._thread and self._thread.is_alive():
             return
         self._stop_event.clear()
-        self._thread = threading.Thread(target=self._run_loop, name="ModbusWorkerThread", daemon=True)
+        self._thread = threading.Thread(target=self._run_loop, name='ModbusWorker', daemon=True)
         self._thread.start()
 
     def stop(self):
-        """Остановка потока и отключение."""
         self._stop_event.set()
-        if self._thread and self._thread.is_alive():
-            self._thread.join(timeout=1.5)
         self._connected = False
+        # Interrupt blocking network reads, without reusing this client's socket.
+        if self._client:
+            try:
+                self._client.close()
+            except Exception:
+                pass
+        if self._thread and self._thread is not threading.current_thread():
+            self._thread.join(timeout=0.3)
 
-    def is_connected(self) -> bool:
+    connect = start
+    disconnect = stop
+
+    def update_config(self, config):
+        self.config = config
+        self.cyclic_write_enabled = config.cyclic_write
+
+    def is_connected(self):
         return self._connected
 
-    def queue_write(self, value: int, address: Optional[int] = None):
-        """Поместить запрос на разовую запись одного регистра."""
-        target_addr = address if address is not None else self.config.write_reg_address
-        self.current_write_val = value & 0xFFFF
-        self._write_queue.put((target_addr, [self.current_write_val]))
+    def queue_write(self, value, address=None):
+        address = self.config.write_reg_address if address is None else address
+        value = int(value) & 0xffff
+        if address == self.config.write_reg_address:
+            self.current_write_val = value
+        self._write_queue.put_nowait((address, [value]))
 
-    def queue_write_registers(self, values: list, start_address: Optional[int] = None):
-        """Поместить запрос на запись нескольких последовательных регистров."""
-        target_addr = start_address if start_address is not None else self.config.write_reg_address
-        clamped_vals = [int(v) & 0xFFFF for v in values]
-        if clamped_vals:
-            self.current_write_val = clamped_vals[0]
-        self._write_queue.put((target_addr, clamped_vals))
+    def queue_write_registers(self, values, start_address=None):
+        address = self.config.write_reg_address if start_address is None else start_address
+        values = [int(v) & 0xffff for v in values]
+        if not values:
+            return
+        if address == self.config.write_reg_address:
+            self.current_write_val = values[0]
+        self._write_queue.put_nowait((address, values))
 
-    def set_cyclic_write(self, enabled: bool, value: Optional[int] = None):
-        """Включить/выключить циклическую запись каждого цикла."""
+    def set_cyclic_write(self, enabled, value=None):
         self.cyclic_write_enabled = enabled
         if value is not None:
-            self.current_write_val = value & 0xFFFF
+            self.current_write_val = value & 0xffff
 
-    def _post_event(self, event_type: str, data: dict):
-        self.event_queue.put({"type": event_type, "data": data, "timestamp": time.time()})
+    def set_control_snapshot(self, word, sound, heartbeat_bit=15, reaction=None):
+        if not 0 <= heartbeat_bit <= 15 or len(sound) != 5:
+            raise ValueError('Некорректный снимок управления')
+        clean_word = int(word) & 0xffff & ~(1 << heartbeat_bit)
+        values = [int(v) for v in sound]
+        if any(not 0 <= v <= 65535 for v in values):
+            raise ValueError('Звуковые параметры вне диапазона WORD')
+        with self._lock:
+            signature = (clean_word, tuple(values), heartbeat_bit)
+            if self._control is None or self._control['signature'] != signature:
+                self._revision += 1
+            self._control = dict(signature=signature, revision=self._revision, word=clean_word,
+                                 sound=values, heartbeat_bit=heartbeat_bit, reaction=deepcopy(reaction or {}),
+                                 updated_at=time.monotonic())
+
+    def clear_control_snapshot(self):
+        with self._lock:
+            self._control = None
+
+    def _post_event(self, kind, data):
+        self.event_queue.put(dict(type=kind, data=data, timestamp=time.time()))
+
+    def _write(self, client, address, values):
+        self.total_requests += 1
+        started = time.perf_counter()
+        try:
+            if len(values) == 1:
+                response = client.write_register(address=address, value=values[0], device_id=self.config.unit_id)
+            else:
+                response = client.write_registers(address=address, values=values, device_id=self.config.unit_id)
+            if response is None or response.isError():
+                raise IOError(str(response) if response is not None else 'Таймаут записи')
+            self.successful_requests += 1
+            self.last_latency_ms = (time.perf_counter() - started) * 1000
+            self._post_event('write_ok', dict(address=address, value=values[0], values=values,
+                                             count=len(values), latency_ms=self.last_latency_ms))
+            return True
+        except Exception as exc:
+            self.failed_requests += 1
+            self._post_event('error', dict(op='write', msg=f'Ошибка записи %MW{address}: {exc}'))
+            return False
+
+    def _read(self, client):
+        self.total_requests += 1
+        started = time.perf_counter()
+        try:
+            response = client.read_holding_registers(address=self.config.read_reg_address,
+                                                     count=1, device_id=self.config.unit_id)
+            if response is None or response.isError() or not response.registers:
+                raise IOError(str(response) if response is not None else 'Таймаут чтения')
+            self.successful_requests += 1
+            self.last_latency_ms = (time.perf_counter() - started) * 1000
+            self._post_event('read_ok', dict(address=self.config.read_reg_address, value=response.registers[0],
+                                           latency_ms=self.last_latency_ms))
+            return True
+        except Exception as exc:
+            self.failed_requests += 1
+            self._post_event('error', dict(op='read', msg=f'Ошибка чтения: {exc}'))
+            return False
+
+    def _control_cycle(self, client, last_sent, last_heartbeat):
+        with self._lock:
+            snapshot = deepcopy(self._control)
+        if snapshot is None:
+            return True, last_sent, last_heartbeat
+        if time.monotonic() - snapshot['updated_at'] > 3:
+            # A stuck evaluator must eventually trip the PLC watchdog, rather than report healthy forever.
+            return True, last_sent, last_heartbeat
+        heartbeat = int(time.monotonic()) % 2
+        if last_sent == snapshot['revision'] and heartbeat == last_heartbeat:
+            return True, last_sent, last_heartbeat
+        word = snapshot['word'] | (heartbeat << snapshot['heartbeat_bit'])
+        # Preserve PLC-owned MW1. Two acknowledged requests, not an atomic PLC transaction.
+        ok = self._write(client, 2, snapshot['sound'])
+        if ok and not self._stop_event.is_set():
+            ok = self._write(client, self.config.write_reg_address, [word])
+        else:
+            ok = False
+        if ok:
+            reaction = snapshot['reaction']
+            reaction['modbus_word'] = word
+            self._post_event('control_ack', dict(word=word, sound=snapshot['sound'], reaction=reaction,
+                                               revision=snapshot['revision'], changed=last_sent != snapshot['revision']))
+            return True, snapshot['revision'], heartbeat
+        return False, last_sent, last_heartbeat
 
     def _run_loop(self):
-        client = None
-        reconnect_delay = 1.0
-
-        consecutive_errors = 0
-        max_consecutive_errors = 2
-
-        while not self._stop_event.is_set():
-            # Попытка подключения
-            self._connected = False
-            self._post_event("status", {
-                "state": "connecting",
-                "message": f"Подключение к {self.config.host}:{self.config.port}..."
-            })
-
-            client = None
-            try:
-                client = ModbusTcpClient(
-                    host=self.config.host,
-                    port=self.config.port,
-                    timeout=max(1.0, float(self.config.timeout))
-                )
-                connected = client.connect()
-            except Exception as e:
-                connected = False
-                err_msg = f"Исключение при подключении: {e}"
-
-            if not connected:
-                if client is not None:
-                    try:
-                        client.close()
-                    except Exception:
-                        pass
-                self.failed_requests += 1
-                self._post_event("status", {
-                    "state": "connecting",
-                    "message": f"ПЛК недоступен ({self.config.host}:{self.config.port}). Повтор через {reconnect_delay:.0f} с..."
-                })
-                
+        pending = {}
+        try:
+            while not self._stop_event.is_set():
+                client = None
+                self._connected = False
+                self._post_event('status', dict(state='connecting', message=f'Подключение к {self.config.host}:{self.config.port}'))
+                try:
+                    client = ModbusTcpClient(host=self.config.host, port=self.config.port,
+                                             timeout=float(self.config.timeout), retries=0)
+                    self._client = client
+                    if not client.connect():
+                        raise ConnectionError('ПЛК недоступен')
+                    if self._stop_event.is_set():
+                        break
+                    self._connected = True
+                    self._post_event('status', dict(state='connected', message='Связь с ПЛК установлена'))
+                    last_sent = last_heartbeat = None
+                    while not self._stop_event.is_set():
+                        started = time.monotonic()
+                        while True:
+                            try:
+                                address, values = self._write_queue.get_nowait()
+                                pending[address] = values
+                            except queue.Empty:
+                                break
+                        with self._lock:
+                            controlled = self._control is not None
+                        # Automatic control owns MW0 and MW2..MW6; discard stale manual commands there.
+                        if controlled:
+                            pending = {a: v for a, v in pending.items() if not (
+                                a == self.config.write_reg_address or a <= 6 and a + len(v) > 2)}
+                        failed = False
+                        for address, values in list(pending.items()):
+                            if self._stop_event.is_set() or not self._write(client, address, values):
+                                failed = True
+                                break
+                            del pending[address]
+                        if not failed and controlled:
+                            ok, last_sent, last_heartbeat = self._control_cycle(client, last_sent, last_heartbeat)
+                            failed = not ok
+                        elif not failed and self.cyclic_write_enabled:
+                            failed = not self._write(client, self.config.write_reg_address, [self.current_write_val])
+                        if not failed and not self._stop_event.is_set():
+                            failed = not self._read(client)
+                        self._post_event('stats', dict(total=self.total_requests, success=self.successful_requests,
+                                                      failed=self.failed_requests, latency_ms=self.last_latency_ms))
+                        if failed:
+                            break
+                        self._stop_event.wait(max(0.01, self.config.poll_interval_ms / 1000 - (time.monotonic()-started)))
+                except Exception as exc:
+                    self._post_event('error', dict(msg=f'Соединение: {exc}'))
+                finally:
+                    self._connected = False
+                    if client:
+                        try:
+                            client.close()
+                        except Exception:
+                            pass
+                    self._client = None
                 if not self.config.auto_reconnect or self._stop_event.is_set():
                     break
-                
-                # Ждем перед повторной попыткой
-                for _ in range(int(reconnect_delay * 10)):
-                    if self._stop_event.is_set():
-                        break
-                    time.sleep(0.1)
-                continue
-
-            # Успешно подключено
-            self._connected = True
-            consecutive_errors = 0
-            self._post_event("status", {
-                "state": "connected",
-                "message": f"Связь установлена с {self.config.host}:{self.config.port}"
-            })
-
-            # Рабочий цикл обмена
-            while not self._stop_event.is_set():
-                cycle_start = time.perf_counter()
-                cycle_has_critical_error = False
-
-                # 1. Запись по очереди (ручная отправка или по изменению)
-                pending_writes = []
-                while not self._write_queue.empty():
-                    try:
-                        pending_writes.append(self._write_queue.get_nowait())
-                    except queue.Empty:
-                        break
-
-                # Если есть команды из очереди - записываем их
-                for w_addr, w_vals in pending_writes:
-                    t0 = time.perf_counter()
-                    self.total_requests += 1
-                    try:
-                        if len(w_vals) == 1:
-                            res = client.write_register(
-                                address=w_addr,
-                                value=w_vals[0] & 0xFFFF,
-                                device_id=self.config.unit_id
-                            )
-                        else:
-                            res = client.write_registers(
-                                address=w_addr,
-                                values=[int(v) & 0xFFFF for v in w_vals],
-                                device_id=self.config.unit_id
-                            )
-                        dt = (time.perf_counter() - t0) * 1000
-                        if res is None or res.isError():
-                            self.failed_requests += 1
-                            consecutive_errors += 1
-                            err = str(res) if res else "Таймаут записи"
-                            self._post_event("error", {"op": "write", "msg": f"Ошибка записи %MW{w_addr} (кол-во {len(w_vals)}): {err}"})
-                            if "ModbusIOException" in str(type(res)) or "Connection" in str(err):
-                                cycle_has_critical_error = True
-                        else:
-                            self.successful_requests += 1
-                            consecutive_errors = 0
-                            self.last_latency_ms = dt
-                            self._post_event("write_ok", {
-                                "address": w_addr,
-                                "value": w_vals[0] & 0xFFFF,
-                                "count": len(w_vals),
-                                "values": w_vals,
-                                "latency_ms": dt
-                            })
-                    except Exception as e:
-                        self.failed_requests += 1
-                        consecutive_errors += 1
-                        cycle_has_critical_error = True
-                        self._post_event("error", {"op": "write", "msg": f"Исключение при записи %MW{w_addr}: {e}"})
-
-                # Если включена циклическая запись и очереди не было, пишем текущее значение
-                if not pending_writes and self.cyclic_write_enabled:
-                    t0 = time.perf_counter()
-                    self.total_requests += 1
-                    try:
-                        res = client.write_register(
-                            address=self.config.write_reg_address,
-                            value=self.current_write_val & 0xFFFF,
-                            device_id=self.config.unit_id
-                        )
-                        dt = (time.perf_counter() - t0) * 1000
-                        if res is None or res.isError():
-                            self.failed_requests += 1
-                            consecutive_errors += 1
-                            err = str(res) if res else "Таймаут циклической записи"
-                            self._post_event("error", {"op": "write", "msg": f"Ошибка циклической записи %MW{self.config.write_reg_address}: {err}"})
-                            if "ModbusIOException" in str(type(res)) or "Connection" in str(err):
-                                cycle_has_critical_error = True
-                        else:
-                            self.successful_requests += 1
-                            consecutive_errors = 0
-                            self.last_latency_ms = dt
-                            self._post_event("write_ok", {
-                                "address": self.config.write_reg_address,
-                                "value": self.current_write_val & 0xFFFF,
-                                "latency_ms": dt
-                            })
-                    except Exception as e:
-                        self.failed_requests += 1
-                        consecutive_errors += 1
-                        cycle_has_critical_error = True
-                        self._post_event("error", {"op": "write", "msg": f"Исключение циклической записи: {e}"})
-
-                # 2. Чтение регистра (%MW1 или настроенного)
-                t0 = time.perf_counter()
-                self.total_requests += 1
-                try:
-                    res = client.read_holding_registers(
-                        address=self.config.read_reg_address,
-                        count=1,
-                        device_id=self.config.unit_id
-                    )
-                    dt = (time.perf_counter() - t0) * 1000
-                    if res is None or res.isError():
-                        self.failed_requests += 1
-                        consecutive_errors += 1
-                        err = str(res) if res else "Таймаут ответа ПЛК"
-                        self._post_event("error", {"op": "read", "msg": f"Ошибка чтения %MW{self.config.read_reg_address}: {err}"})
-                        if "ModbusIOException" in str(type(res)) or "Connection" in str(err):
-                            cycle_has_critical_error = True
-                    else:
-                        self.successful_requests += 1
-                        consecutive_errors = 0
-                        self.last_latency_ms = dt
-                        val = res.registers[0]
-                        self._post_event("read_ok", {
-                            "address": self.config.read_reg_address,
-                            "value": val,
-                            "latency_ms": dt
-                        })
-                except Exception as e:
-                    self.failed_requests += 1
-                    consecutive_errors += 1
-                    cycle_has_critical_error = True
-                    self._post_event("error", {"op": "read", "msg": f"Исключение при чтении: {e}"})
-
-                # Отправка сводки статистики
-                self._post_event("stats", {
-                    "total": self.total_requests,
-                    "success": self.successful_requests,
-                    "failed": self.failed_requests,
-                    "latency_ms": self.last_latency_ms
-                })
-
-                # Проверка потери связи: сетевое исключение или превышение счетчика ошибок
-                if cycle_has_critical_error or consecutive_errors >= max_consecutive_errors:
-                    self._connected = False
-                    self._post_event("status", {
-                        "state": "connecting",
-                        "message": "Потеря связи с ПЛК. Переподключение..."
-                    })
-                    break
-
-                # Выдерживаем интервал опроса
-                elapsed = (time.perf_counter() - cycle_start) * 1000
-                sleep_time = max(0.01, (self.config.poll_interval_ms - elapsed) / 1000.0)
-                
-                # Дробный сон для быстрой реакции на stop_event
-                steps = int(sleep_time / 0.05) + 1
-                dt_step = sleep_time / steps
-                for _ in range(steps):
-                    if self._stop_event.is_set():
-                        break
-                    time.sleep(dt_step)
-
-            # Гарантированно закрываем клиент при разрыве или выходе из цикла
-            if client is not None:
-                try:
-                    client.close()
-                except Exception:
-                    pass
+                self._post_event('status', dict(state='connecting', message='Повтор подключения через 1 с'))
+                self._stop_event.wait(1.0)
+        finally:
             self._connected = False
-
-        self._connected = False
-        self._post_event("status", {"state": "disconnected", "message": "Связь отключена"})
+            self._post_event('status', dict(state='disconnected', message='Связь отключена'))

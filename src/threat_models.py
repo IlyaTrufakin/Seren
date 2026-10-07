@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from typing import List, Dict, Optional
 from datetime import datetime
 import time
@@ -74,6 +74,21 @@ class DroneDictionaryConfig:
     ])
 
 @dataclass
+class SignificantEvent:
+    """Значимое оперативное событие из Telegram (мусор отфильтрован)."""
+    time_str: str = ""
+    timestamp: float = 0.0
+    channel: str = ""
+    category: str = "alert"      # "rocket", "kab", "drone", "shelter", "clear", "alert"
+    badge_threat: str = ""       # "🚀 РАКЕТА", "💣 КАБ", "🛸 ДРОН: ШАХЕД (Гр.1)", "⚠️ В УКРЫТИЕ", "🟢 ОТБОЙ"
+    badge_target: str = ""       # "🎯 РАЙОН: Одесская", "🏙️ ГОРОД", "🗺️ ОБЛАСТЬ"
+    sector_name: str = ""        # Распознанный ориентир / район
+    drone_name: str = ""
+    drone_group: int = 0
+    text: str = ""
+    is_critical: bool = False
+
+@dataclass
 class ThreatStatus:
     """Текущее состояние угроз, сформированное анализатором."""
     level_code: int = 0          # 0: Безопасно, 1: Мин., 2: Потенц. город, 3: Потенц. район, 4: Крит. город, 5: Крит. район
@@ -101,6 +116,147 @@ class ThreatStatus:
     sound_interval_ms: int = 0   # %MW6: Пауза между сериями
     sound_profile_name: str = "Тишина"
 
+    # === Детализация источника 1: API (alarmmap.online) ===
+    alarmmap_online: bool = False
+    alarmmap_last_poll_time: float = 0.0
+    alarmmap_status_text: str = "Ожидание данных"
+    alarmmap_level: int = 0
+    alarmmap_has_air: bool = False
+    alarmmap_has_kab: bool = False
+    alarmmap_has_drone: bool = False
+    alarmmap_has_artillery: bool = False
+    alarmmap_active_count: int = 0
+    alarmmap_decoded_details: List[Dict] = field(default_factory=list)
+    alarmmap_types_summary: str = ""
+    alarmmap_duration_summary: str = ""
+    alarmmap_full_text: str = ""
+
+    # === Детализация источника 2: Telegram каналы ===
+    tg_online: bool = False
+    tg_mode: str = "web"
+    tg_channels: List[str] = field(default_factory=list)
+    tg_last_msg_time: float = 0.0
+    tg_city_threat: str = ""          # "rocket", "kab", "drone", ""
+    tg_city_level: int = 0            # 0, 2, 4
+    tg_city_ttl_remain_s: int = 0     # оставшееся время действия угрозы городу
+    tg_district_threat: str = ""      # "rocket", "kab", "drone", ""
+    tg_district_level: int = 0        # 0, 3, 5
+    tg_district_landmarks: str = ""   # "Одесская, Новые дома"
+    tg_district_ttl_remain_s: int = 0 # оставшееся время действия угрозы району
+    tg_drone_name: str = ""
+    tg_drone_group: int = 0
+
+    # === Список последних значимых оперативных сообщений (без мусора) ===
+    significant_events: List[SignificantEvent] = field(default_factory=list)
+    severity: str = "safe"
+    active_rule_id: str = ""
+    active_threat_type: str = ""
+    reason: str = "Ожидание данных источников"
+    matched_sources: List[str] = field(default_factory=list)
+    source_health: Dict = field(default_factory=dict)
+    alarmmap_catalog: List[Dict] = field(default_factory=list)
+    last_resolution: str = ""
+    selected_event_ids: List[str] = field(default_factory=list)
+
+
+SEVERITIES = {"critical": "Критическая", "high": "Высокая", "low": "Низкая"}
+THREAT_TYPES = {"rocket": "Ракетная", "kab": "Бомбовая", "drone": "Дроновая"}
+APPROACHES = {"launch": "Пуск", "city": "Над городом",
+              "district": "Над районом", "toward_district": "Направление на район",
+              "toward_city": "Направление на город"}
+
+
+@dataclass
+class EndCondition:
+    name: str = ""
+    enabled: bool = True
+    keywords: List[str] = field(default_factory=list)
+    action: str = "shorten"  # clear, shorten, ignore
+    hold_seconds: int = 60
+    threat_types: List[str] = field(default_factory=lambda: list(THREAT_TYPES))
+    sources: List[str] = field(default_factory=lambda: ["telegram:*"])
+    context_seconds: int = 180
+    allow_without_location: bool = False
+    require_confirmed: bool = True
+    regional_clear: bool = False
+    reject_keywords: List[str] = field(default_factory=list)
+
+
+def default_end_conditions():
+    return [
+        EndCondition("Отбой", True, ["відбій", "отбой", "чисто", "угроза миновала", "загроза минула"],
+                     "clear", 0, allow_without_location=True, context_seconds=600, regional_clear=True),
+        EndCondition("Падение / прилёт", True,
+                     ["вибух", "вибухи", "взрыв", "взрывы", "приліт", "прилет", "прилёт", "упал", "упали", "впав", "впали"],
+                     "shorten", 60, allow_without_location=True,
+                     reject_keywords=["не упал", "не впав", "не впали", "работа пво", "робота ппо"]),
+        EndCondition("Цель уничтожена", True, ["збито", "збитий", "сбит", "сбита", "сбито", "минус", "мінус", "знищено"],
+                     "shorten", 30, allow_without_location=True, reject_keywords=["не сбит", "не збито"]),
+        EndCondition("Потеря фиксации", True,
+                     ["локаційно не фіксується", "більше не фіксується", "больше не фиксируется", "без фиксации", "без фіксації"],
+                     "ignore", 120, allow_without_location=True, require_confirmed=False),
+    ]
+
+
+@dataclass
+class TrackingConfig:
+    enabled: bool = True
+    context_seconds: int = 180
+    movement_action: str = "shorten"
+    movement_hold_seconds: int = 60
+    movement_keywords: List[str] = field(default_factory=lambda: [
+        "на", "курс", "через", "далі", "далее", "рухається", "движется", "прямує", "летит", "над"])
+    uncertain_keywords: List[str] = field(default_factory=lambda: [
+        "попередньо", "предварительно", "можливо", "возможно", "ймовірно", "вероятно", "не підтверджено", "не подтверждено"])
+    continuing_keywords: List[str] = field(default_factory=lambda: [
+        "ще", "еще", "ещё", "другий", "второй", "наступний", "следующий", "продовжу", "продолжа",
+        "новий пуск", "новый пуск", "повторні пуски", "повторные пуски", "загроза зберігається", "угроза сохраняется"])
+    rocket_keywords: List[str] = field(default_factory=lambda: [
+        "ракет", "баллист", "балист", "баліст", "іскандер", "искандер", "швидкісна ціль", "скоростная цель",
+        "с-300", "с-400", "кинжал", "кинджал", "х-101", "х-59", "х-69", "х-22", "циркон"])
+    bomb_keywords: List[str] = field(default_factory=lambda: ["каб", "каба", "кабы", "каби", "кабів", "кабов", "авіабомб", "авиабомб", "фаб"])
+    rocket_launch_keywords: List[str] = field(default_factory=lambda: ["ту-95", "ту-160", "міг-31к", "миг-31к"])
+
+
+@dataclass
+class AlarmRule:
+    id: str = ""
+    severity: str = "low"
+    threat_type: str = "rocket"
+    enabled: bool = True
+    sources: List[str] = field(default_factory=lambda: ["telegram:*", "alarmmap"])
+    approaches: List[str] = field(default_factory=lambda: list(APPROACHES))
+    drone_groups: List[int] = field(default_factory=lambda: [0, 1, 2, 3])
+    api_types: List[str] = field(default_factory=list)
+    api_levels: List[int] = field(default_factory=list)
+    # API не сообщает положение цели: это отдельный фильтр по type+level.
+    sound: SoundProfile = field(default_factory=SoundProfile)
+
+
+def default_alarm_rules():
+    rules = []
+    for degree, levels, approaches in [
+        ("critical", [3], ["district", "toward_district"]),
+        ("high", [2], ["city", "toward_city"]),
+        ("low", [1], ["launch"]),
+    ]:
+        for kind in THREAT_TYPES:
+            code = len(rules) + 1
+            rules.append(AlarmRule(
+                id=f"{degree}_{kind}", severity=degree, threat_type=kind,
+                approaches=(list(approaches)+["city", "toward_city"]
+                            if degree == "critical" and kind in ("rocket", "kab") else list(approaches)),
+                drone_groups=(([0, 1] if degree == "critical" else [0, 1, 2, 3]) if kind == "drone" else []),
+                api_types={"rocket": ["air"], "kab": ["kab-bombs"],
+                           "drone": ["fight-drones"]}[kind],
+                api_levels=(levels if kind == "rocket" else {"critical": [2], "high": [1], "low": []}[degree]),
+                sound=SoundProfile(code, f"{SEVERITIES[degree]} — {THREAT_TYPES[kind]}",
+                                   {"critical": 3, "high": 2, "low": 1}[degree],
+                                   {"critical": 1000, "high": 700, "low": 300}[degree],
+                                   400, {"critical": 4000, "high": 8000, "low": 15000}[degree])
+            ))
+    return rules
+
 @dataclass
 class DistrictConfig:
     """Конфигурация отслеживаемого сектора / района."""
@@ -118,7 +274,8 @@ class DistrictConfig:
     ])
     # Общеклиентские маркеры города
     city_keywords: List[str] = field(default_factory=lambda: [
-        "харьков", "харків", "городу", "місту", "центр", "шевро", "салтов", "салтів", "алексеев", "олексіїв"
+        "харьков", "харків", "городу", "місту", "центр", "шевро", "салтов", "салтів", "алексеев", "олексіїв",
+        "місто", "міста", "містом", "город", "города", "городом"
     ])
     # Маркеры экстренной опасности / призывы в укрытие
     critical_alert_keywords: List[str] = field(default_factory=lambda: [
@@ -208,6 +365,20 @@ class ThreatSystemConfig:
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
     drone_dict: DroneDictionaryConfig = field(default_factory=DroneDictionaryConfig)
     sound_profiles: SoundProfilesConfig = field(default_factory=SoundProfilesConfig)
+    alarm_rules: List[AlarmRule] = field(default_factory=default_alarm_rules)
+    end_conditions: List[EndCondition] = field(default_factory=default_end_conditions)
+    tracking: TrackingConfig = field(default_factory=TrackingConfig)
+    approach_keywords: Dict[str, List[str]] = field(default_factory=lambda: {
+        "launch": ["пуск", "запуск", "злет", "взлет", "виліт", "вылет"],
+        "city": ["над", "в городе", "у місті", "в черте", "над містом"],
+        "toward_city": ["на", "курс", "напрям", "в сторону", "у бік", "в бік"],
+        "district": ["над", "в районе", "у районі", "в районі"],
+        "toward_district": ["курс на", "напрям", "в сторону", "у бік", "в бік", "летит на", "летять на", "на "]
+    })
+    source_stale_seconds: int = 60
+    api_stale_seconds: int = 60
+    safe_sound: SoundProfile = field(default_factory=lambda: SoundProfile(
+        0, "Отсутствие тревог", 1, 200, 0, 30000))
     auto_transfer_to_plc: bool = True   # Автоматически отправлять вычисленные регистры в ПЛК
 
     @classmethod
@@ -219,11 +390,22 @@ class ThreatSystemConfig:
         try:
             with open(path, "r", encoding="utf-8") as f:
                 d = json.load(f)
+            cfg.enabled = d.get("enabled", True)
+            cfg.alarmmap_katottg = d.get("alarmmap_katottg", cfg.alarmmap_katottg)
+            cfg.source_stale_seconds = int(d.get("source_stale_seconds", 60))
+            cfg.api_stale_seconds = int(d.get("api_stale_seconds", 60))
+            cfg.approach_keywords = d.get("approach_keywords", cfg.approach_keywords)
+            cfg.approach_keywords.setdefault("toward_city", ["на", "курс", "напрям", "в сторону", "у бік"])
+            if "tracking" in d:
+                cfg.tracking = TrackingConfig(**d["tracking"])
+            if "end_conditions" in d:
+                cfg.end_conditions = [EndCondition(**row) for row in d["end_conditions"]]
             cfg.alarmmap_enabled = d.get("alarmmap_enabled", cfg.alarmmap_enabled)
             cfg.alarmmap_key_file = d.get("alarmmap_key_file", cfg.alarmmap_key_file)
             cfg.alarmmap_poll_interval_s = d.get("alarmmap_poll_interval_s", cfg.alarmmap_poll_interval_s)
             cfg.telegram_enabled = d.get("telegram_enabled", cfg.telegram_enabled)
             cfg.telegram_mode = d.get("telegram_mode", cfg.telegram_mode)
+            cfg.telegram_poll_interval_s = int(d.get("telegram_poll_interval_s", cfg.telegram_poll_interval_s))
             cfg.telegram_api_id = d.get("telegram_api_id", cfg.telegram_api_id)
             cfg.telegram_api_hash = d.get("telegram_api_hash", cfg.telegram_api_hash)
             cfg.telegram_channels = d.get("telegram_channels", cfg.telegram_channels)
@@ -275,81 +457,119 @@ class ThreatSystemConfig:
                         p_obj.beep_duration_ms = int(p_dict.get("beep_duration_ms", p_obj.beep_duration_ms))
                         p_obj.pause_between_ms = int(p_dict.get("pause_between_ms", p_obj.pause_between_ms))
                         p_obj.interval_series_ms = int(p_dict.get("interval_series_ms", p_obj.interval_series_ms))
+            if "alarm_rules" in d:
+                cfg.alarm_rules = []
+                for data in d["alarm_rules"]:
+                    data = dict(data)
+                    data["sound"] = SoundProfile(**data["sound"])
+                    cfg.alarm_rules.append(AlarmRule(**data))
+            else:
+                # Сохраняем прежние параметры звука при переходе на девять правил.
+                from copy import deepcopy
+                mapping = {
+                    "critical_rocket": "rocket_critical", "high_rocket": "rocket_potential",
+                    "low_rocket": "rocket_potential", "critical_kab": "kab_district_critical",
+                    "high_kab": "kab_city_critical", "low_kab": "kab_potential",
+                    "critical_drone": "drone_g1_district_critical", "high_drone": "drone_g1_city",
+                    "low_drone": "drone_g3_decoy"}
+                for rule in cfg.alarm_rules:
+                    old = deepcopy(getattr(cfg.sound_profiles, mapping[rule.id]))
+                    old.code, old.name = rule.sound.code, rule.sound.name
+                    rule.sound = old
+            cfg.safe_sound = SoundProfile(**d["safe_sound"]) if "safe_sound" in d else cfg.sound_profiles.safe_heartbeat
+            cfg.safe_sound.code = 0
+            cfg.validate()
         except Exception as e:
-            print(f"[ThreatConfig] Error loading {path}: {e}")
+            raise ValueError(f"Не удалось загрузить настройки {path}: {e}") from e
         return cfg
 
+    def validate(self):
+        import re
+        normalized_channels = [c.strip().replace("https://t.me/", "").lstrip("@").strip("/").lower()
+                               for c in self.telegram_channels]
+        if any(not re.fullmatch(r"[a-z0-9_]+", c) for c in normalized_channels):
+            raise ValueError("Укажите имена Telegram-каналов без ссылок на сообщения")
+        if self.telegram_enabled and not normalized_channels:
+            raise ValueError("Для Telegram нужно указать хотя бы один канал")
+        if self.telegram_enabled and self.telegram_mode == "telethon" and (not self.telegram_api_id or not self.telegram_api_hash):
+            raise ValueError("Для Telethon нужны API ID и API Hash")
+        if len(self.alarm_rules) != 9 or {r.id for r in self.alarm_rules} != {
+                f"{degree}_{kind}" for degree in SEVERITIES for kind in THREAT_TYPES}:
+            raise ValueError("Требуются все девять уникальных правил тревоги")
+        for rule in self.alarm_rules:
+            if rule.id != f"{rule.severity}_{rule.threat_type}":
+                raise ValueError("Несогласованное название правила")
+            if not set(rule.approaches) <= set(APPROACHES):
+                raise ValueError("Неизвестная степень приближения")
+            if not set(rule.drone_groups) <= {0, 1, 2, 3}:
+                raise ValueError("Группа дрона: 0 (неизвестна), 1, 2 или 3")
+            if any(not isinstance(n, int) or n < 0 for n in rule.api_levels):
+                raise ValueError("Уровни API должны быть неотрицательными целыми")
+            if any(src != "alarmmap" and not re.fullmatch(r"telegram:(?:\*|[A-Za-z0-9_]+)", src) for src in rule.sources):
+                raise ValueError("Источник: alarmmap, telegram:* или telegram:имя_канала")
+            if rule.enabled and not rule.sources:
+                raise ValueError(f"Выберите источники для {rule.id}")
+            for source in rule.sources:
+                if source.startswith("telegram:") and source != "telegram:*" and source.split(":", 1)[1].lower() not in normalized_channels:
+                    raise ValueError(f"Добавьте канал {source} во вкладку Источники")
+            if rule.enabled and rule.threat_type == "drone" and not rule.drone_groups:
+                raise ValueError(f"Выберите группы дронов для {rule.id}")
+        if set(self.approach_keywords) != set(APPROACHES) or any(
+                not isinstance(words, list) or any(not isinstance(w, str) for w in words)
+                for words in self.approach_keywords.values()):
+            raise ValueError("Некорректный словарь приближения")
+        if self.tracking.context_seconds <= 0 or self.tracking.movement_hold_seconds < 0:
+            raise ValueError("Окно контекста должно быть положительным; выдержка — неотрицательной")
+        if self.tracking.movement_action not in ("keep", "replace", "shorten"):
+            raise ValueError("Некорректное действие при продвижении цели")
+        for condition in self.end_conditions:
+            if condition.action not in ("clear", "shorten", "ignore") or condition.hold_seconds < 0 or condition.context_seconds <= 0:
+                raise ValueError("Проверьте действие, выдержку и окно контекста окончания угрозы")
+            if not set(condition.threat_types) <= set(THREAT_TYPES):
+                raise ValueError("Неизвестный тип угрозы в условии окончания")
+            if any(not re.fullmatch(r"telegram:(?:\*|[A-Za-z0-9_]+)", source) for source in condition.sources):
+                raise ValueError("Условия окончания используют Telegram или отдельные каналы")
+            if condition.enabled and (not condition.keywords or not condition.sources or not condition.threat_types):
+                raise ValueError("Условию окончания нужны фразы, источники и типы угроз")
+        bits = list(asdict(self.bit_mapping).values())
+        feedback = list(asdict(self.plc_feedback).values())
+        if any(not isinstance(b, int) or not 0 <= b <= 15 for b in bits + feedback):
+            raise ValueError("Номера битов должны быть от 0 до 15")
+        if len(set(bits)) != len(bits) or len(set(feedback)) != len(feedback):
+            raise ValueError("Назначения битов в одном слове должны быть уникальными")
+        if any(not isinstance(v, int) or v <= 0 for v in [self.district.ttl_seconds,
+                self.alarmmap_poll_interval_s, self.telegram_poll_interval_s,
+                self.source_stale_seconds, self.api_stale_seconds]):
+            raise ValueError("TTL, интервалы и таймауты актуальности должны быть положительными")
+        if self.api_stale_seconds < self.alarmmap_poll_interval_s:
+            raise ValueError("Актуальность API должна быть не меньше интервала опроса")
+        for t in [self.schedule.start_time, self.schedule.end_time]:
+            if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", t):
+                raise ValueError("Время расписания: ЧЧ:ММ")
+        for p in [self.safe_sound] + [r.sound for r in self.alarm_rules]:
+            if any(not isinstance(v, int) or not 0 <= v <= 65535 for v in
+                   [p.code, p.beep_count, p.beep_duration_ms, p.pause_between_ms, p.interval_series_ms]):
+                raise ValueError("Параметры звука должны быть в диапазоне 0..65535")
+            # В ПЛК время импульса/паузы хранится в шагах 100 мс, серии — 1 с.
+            if p.beep_duration_ms % 100 or p.pause_between_ms % 100 or p.interval_series_ms % 1000:
+                raise ValueError("Длительность/пауза: шаг 100 мс; интервал серий: шаг 1000 мс")
+            if p.beep_count and (not p.beep_duration_ms or not p.interval_series_ms):
+                raise ValueError("Для включенного звука задайте длительность и интервал")
+        codes = [r.sound.code for r in self.alarm_rules]
+        if set(codes) != set(range(1, 10)) or self.safe_sound.code != 0:
+            raise ValueError("Коды тревог: 1..9; отсутствия тревог: 0")
+
     def save(self, path: str = "config_threats.json") -> bool:
-        """Сохраняет текущую конфигурацию в файл JSON."""
-        import json
-        sound_profiles_dict = {}
-        for prof_name in [
-            "safe_heartbeat", "rocket_critical", "rocket_potential",
-            "kab_district_critical", "kab_city_critical", "kab_potential",
-            "drone_g1_district_critical", "drone_g1_city", "drone_g2_tactical", "drone_g3_decoy"
-        ]:
-            if hasattr(self.sound_profiles, prof_name):
-                p: SoundProfile = getattr(self.sound_profiles, prof_name)
-                sound_profiles_dict[prof_name] = {
-                    "beep_count": p.beep_count,
-                    "beep_duration_ms": p.beep_duration_ms,
-                    "pause_between_ms": p.pause_between_ms,
-                    "interval_series_ms": p.interval_series_ms
-                }
-
-        data = {
-            "alarmmap_enabled": self.alarmmap_enabled,
-            "alarmmap_key_file": self.alarmmap_key_file,
-            "alarmmap_poll_interval_s": self.alarmmap_poll_interval_s,
-            "telegram_enabled": self.telegram_enabled,
-            "telegram_mode": self.telegram_mode,
-            "telegram_api_id": self.telegram_api_id,
-            "telegram_api_hash": self.telegram_api_hash,
-            "telegram_channels": self.telegram_channels,
-            "district": {
-                "name": self.district.name,
-                "ttl_seconds": self.district.ttl_seconds,
-                "district_keywords": self.district.district_keywords,
-                "critical_alert_keywords": self.district.critical_alert_keywords,
-                "city_keywords": self.district.city_keywords
-            },
-            "bit_mapping": {
-                "bit_safe": self.bit_mapping.bit_safe,
-                "bit_threat_minimal": self.bit_mapping.bit_threat_minimal,
-                "bit_threat_city_potential": self.bit_mapping.bit_threat_city_potential,
-                "bit_threat_district_potential": self.bit_mapping.bit_threat_district_potential,
-                "bit_threat_city_critical": self.bit_mapping.bit_threat_city_critical,
-                "bit_threat_district_critical": self.bit_mapping.bit_threat_district_critical,
-                "bit_type_rocket": self.bit_mapping.bit_type_rocket,
-                "bit_type_kab": self.bit_mapping.bit_type_kab,
-                "bit_type_drone": self.bit_mapping.bit_type_drone,
-                "bit_no_link": self.bit_mapping.bit_no_link,
-                "bit_muted_by_schedule": self.bit_mapping.bit_muted_by_schedule,
-                "bit_heartbeat": self.bit_mapping.bit_heartbeat
-            },
-            "plc_feedback": {
-                "bit_plc_running": self.plc_feedback.bit_plc_running,
-                "bit_alarm_reset": self.plc_feedback.bit_alarm_reset,
-                "bit_analysis_switch": self.plc_feedback.bit_analysis_switch
-            },
-            "schedule": {
-                "enabled": self.schedule.enabled,
-                "start_time": self.schedule.start_time,
-                "end_time": self.schedule.end_time
-            },
-            "drone_dict": {
-                "group1_keywords": self.drone_dict.group1_keywords,
-                "group2_keywords": self.drone_dict.group2_keywords,
-                "group3_keywords": self.drone_dict.group3_keywords
-            },
-            "sound_profiles": sound_profiles_dict,
-            "auto_transfer_to_plc": self.auto_transfer_to_plc
-        }
+        """Атомарное сохранение всех настроек; при ошибке исходный файл сохраняется."""
+        import json, os, tempfile
+        self.validate()
+        target = os.path.abspath(path)
+        fd, temporary = tempfile.mkstemp(dir=os.path.dirname(target), suffix=".tmp")
         try:
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(data, f, ensure_ascii=False, indent=2)
-            return True
-        except Exception as e:
-            print(f"[ThreatConfig] Error saving {path}: {e}")
-            return False
-
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(asdict(self), f, ensure_ascii=False, indent=2)
+            os.replace(temporary, target)
+        finally:
+            if os.path.exists(temporary):
+                os.unlink(temporary)
+        return True

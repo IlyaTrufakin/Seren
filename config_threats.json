@@ -1,18 +1,21 @@
 {
+  "enabled": true,
   "alarmmap_enabled": true,
   "alarmmap_key_file": "API/alarmmap.online.txt",
+  "alarmmap_katottg": "UA63120270010096107",
   "alarmmap_poll_interval_s": 10,
   "telegram_enabled": true,
   "telegram_mode": "web",
   "telegram_api_id": null,
   "telegram_api_hash": null,
+  "telegram_phone": null,
   "telegram_channels": [
     "monitor1654",
     "radar_kharkov"
   ],
+  "telegram_poll_interval_s": 4,
   "district": {
     "name": "Основянский / Слободской / Немышля",
-    "ttl_seconds": 600,
     "district_keywords": [
       "основян",
       "основ'ян",
@@ -45,6 +48,24 @@
       "безлюдовк",
       "безлюдівк"
     ],
+    "city_keywords": [
+      "харьков",
+      "харків",
+      "городу",
+      "місту",
+      "центр",
+      "шевро",
+      "салтов",
+      "салтів",
+      "алексеев",
+      "олексіїв",
+      "місто",
+      "міста",
+      "містом",
+      "город",
+      "города",
+      "городом"
+    ],
     "critical_alert_keywords": [
       "в укриття",
       "в укрытие",
@@ -58,18 +79,7 @@
       "в безпечні місця",
       "в безопасные места"
     ],
-    "city_keywords": [
-      "харьков",
-      "харків",
-      "городу",
-      "місту",
-      "центр",
-      "шевро",
-      "салтов",
-      "салтів",
-      "алексеев",
-      "олексіїв"
-    ]
+    "ttl_seconds": 300
   },
   "bit_mapping": {
     "bit_safe": 0,
@@ -93,7 +103,7 @@
   "schedule": {
     "enabled": true,
     "start_time": "23:40",
-    "end_time": "05:00"
+    "end_time": "02:00"
   },
   "drone_dict": {
     "group1_keywords": [
@@ -135,65 +145,605 @@
   },
   "sound_profiles": {
     "safe_heartbeat": {
+      "code": 0,
+      "name": "Норма (Heartbeat)",
       "beep_count": 1,
       "beep_duration_ms": 200,
       "pause_between_ms": 0,
       "interval_series_ms": 30000
     },
     "rocket_critical": {
+      "code": 1,
+      "name": "Ракета: Критическая",
       "beep_count": 3,
       "beep_duration_ms": 1200,
       "pause_between_ms": 400,
       "interval_series_ms": 4000
     },
     "rocket_potential": {
+      "code": 2,
+      "name": "Ракета: Потенциальная",
       "beep_count": 2,
       "beep_duration_ms": 800,
       "pause_between_ms": 600,
       "interval_series_ms": 8000
     },
     "kab_district_critical": {
+      "code": 3,
+      "name": "КАБ: Критическая (Район)",
       "beep_count": 4,
       "beep_duration_ms": 1000,
       "pause_between_ms": 300,
       "interval_series_ms": 3000
     },
     "kab_city_critical": {
+      "code": 4,
+      "name": "КАБ: Критическая (Город)",
       "beep_count": 2,
       "beep_duration_ms": 1000,
       "pause_between_ms": 500,
       "interval_series_ms": 6000
     },
     "kab_potential": {
+      "code": 5,
+      "name": "КАБ: Потенциальная",
       "beep_count": 1,
       "beep_duration_ms": 800,
       "pause_between_ms": 500,
       "interval_series_ms": 10000
     },
     "drone_g1_district_critical": {
+      "code": 6,
+      "name": "Дрон Гр.1: Критическая (Район)",
       "beep_count": 3,
       "beep_duration_ms": 800,
       "pause_between_ms": 400,
       "interval_series_ms": 4000
     },
     "drone_g1_city": {
+      "code": 7,
+      "name": "Дрон Гр.1: Опасность (Город)",
       "beep_count": 2,
-      "beep_duration_ms": 700,
+      "beep_duration_ms": 1700,
       "pause_between_ms": 500,
       "interval_series_ms": 7000
     },
     "drone_g2_tactical": {
+      "code": 8,
+      "name": "Дрон Гр.2: Тактические",
       "beep_count": 1,
       "beep_duration_ms": 600,
       "pause_between_ms": 500,
       "interval_series_ms": 10000
     },
     "drone_g3_decoy": {
+      "code": 9,
+      "name": "Дрон Гр.3: Ложные цели / Минимальная",
       "beep_count": 1,
       "beep_duration_ms": 300,
       "pause_between_ms": 500,
       "interval_series_ms": 15000
     }
+  },
+  "alarm_rules": [
+    {
+      "id": "critical_rocket",
+      "severity": "critical",
+      "threat_type": "rocket",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "city",
+        "district",
+        "toward_district",
+        "toward_city"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [
+        3
+      ],
+      "sound": {
+        "code": 1,
+        "name": "Критическая — Ракетная",
+        "beep_count": 3,
+        "beep_duration_ms": 500,
+        "pause_between_ms": 500,
+        "interval_series_ms": 4000
+      }
+    },
+    {
+      "id": "critical_kab",
+      "severity": "critical",
+      "threat_type": "kab",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "city",
+        "district",
+        "toward_district",
+        "toward_city"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "kab-bombs"
+      ],
+      "api_levels": [
+        2
+      ],
+      "sound": {
+        "code": 2,
+        "name": "Критическая — Бомбовая",
+        "beep_count": 4,
+        "beep_duration_ms": 1000,
+        "pause_between_ms": 300,
+        "interval_series_ms": 3000
+      }
+    },
+    {
+      "id": "critical_drone",
+      "severity": "critical",
+      "threat_type": "drone",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "district",
+        "toward_district"
+      ],
+      "drone_groups": [
+        1
+      ],
+      "api_types": [
+        "fight-drones"
+      ],
+      "api_levels": [
+        2
+      ],
+      "sound": {
+        "code": 3,
+        "name": "Критическая — Дроновая",
+        "beep_count": 2,
+        "beep_duration_ms": 200,
+        "pause_between_ms": 400,
+        "interval_series_ms": 4000
+      }
+    },
+    {
+      "id": "high_rocket",
+      "severity": "high",
+      "threat_type": "rocket",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "launch",
+        "toward_city"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [
+        2
+      ],
+      "sound": {
+        "code": 4,
+        "name": "Высокая — Ракетная",
+        "beep_count": 2,
+        "beep_duration_ms": 800,
+        "pause_between_ms": 600,
+        "interval_series_ms": 8000
+      }
+    },
+    {
+      "id": "high_kab",
+      "severity": "high",
+      "threat_type": "kab",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "toward_city"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "kab-bombs"
+      ],
+      "api_levels": [
+        2
+      ],
+      "sound": {
+        "code": 5,
+        "name": "Высокая — Бомбовая",
+        "beep_count": 2,
+        "beep_duration_ms": 1000,
+        "pause_between_ms": 500,
+        "interval_series_ms": 6000
+      }
+    },
+    {
+      "id": "high_drone",
+      "severity": "high",
+      "threat_type": "drone",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "city"
+      ],
+      "drone_groups": [
+        1
+      ],
+      "api_types": [
+        "fight-drones"
+      ],
+      "api_levels": [
+        2
+      ],
+      "sound": {
+        "code": 6,
+        "name": "Высокая — Дроновая",
+        "beep_count": 2,
+        "beep_duration_ms": 1700,
+        "pause_between_ms": 500,
+        "interval_series_ms": 7000
+      }
+    },
+    {
+      "id": "low_rocket",
+      "severity": "low",
+      "threat_type": "rocket",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "launch"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [
+        1
+      ],
+      "sound": {
+        "code": 7,
+        "name": "Низкая — Ракетная",
+        "beep_count": 1,
+        "beep_duration_ms": 800,
+        "pause_between_ms": 600,
+        "interval_series_ms": 8000
+      }
+    },
+    {
+      "id": "low_kab",
+      "severity": "low",
+      "threat_type": "kab",
+      "enabled": true,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "launch"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "kab-bombs"
+      ],
+      "api_levels": [],
+      "sound": {
+        "code": 8,
+        "name": "Низкая — Бомбовая",
+        "beep_count": 1,
+        "beep_duration_ms": 800,
+        "pause_between_ms": 500,
+        "interval_series_ms": 10000
+      }
+    },
+    {
+      "id": "low_drone",
+      "severity": "low",
+      "threat_type": "drone",
+      "enabled": false,
+      "sources": [
+        "telegram:*",
+        "alarmmap"
+      ],
+      "approaches": [
+        "launch"
+      ],
+      "drone_groups": [],
+      "api_types": [
+        "fight-drones"
+      ],
+      "api_levels": [],
+      "sound": {
+        "code": 9,
+        "name": "Низкая — Дроновая",
+        "beep_count": 1,
+        "beep_duration_ms": 300,
+        "pause_between_ms": 500,
+        "interval_series_ms": 15000
+      }
+    }
+  ],
+  "end_conditions": [
+    {
+      "name": "Отбой",
+      "enabled": true,
+      "keywords": [
+        "відбій",
+        "отбой",
+        "чисто",
+        "угроза миновала",
+        "загроза минула"
+      ],
+      "action": "clear",
+      "hold_seconds": 0,
+      "threat_types": [
+        "rocket",
+        "kab",
+        "drone"
+      ],
+      "sources": [
+        "telegram:*"
+      ],
+      "context_seconds": 600,
+      "allow_without_location": true,
+      "require_confirmed": true,
+      "regional_clear": true,
+      "reject_keywords": []
+    },
+    {
+      "name": "Падение / прилёт",
+      "enabled": true,
+      "keywords": [
+        "вибух",
+        "вибухи",
+        "взрыв",
+        "взрывы",
+        "приліт",
+        "прилет",
+        "прилёт",
+        "упал",
+        "упали",
+        "впав",
+        "впали"
+      ],
+      "action": "shorten",
+      "hold_seconds": 60,
+      "threat_types": [
+        "rocket",
+        "kab",
+        "drone"
+      ],
+      "sources": [
+        "telegram:*"
+      ],
+      "context_seconds": 180,
+      "allow_without_location": true,
+      "require_confirmed": true,
+      "regional_clear": false,
+      "reject_keywords": [
+        "не упал",
+        "не впав",
+        "не впали",
+        "работа пво",
+        "робота ппо"
+      ]
+    },
+    {
+      "name": "Цель уничтожена",
+      "enabled": true,
+      "keywords": [
+        "збито",
+        "збитий",
+        "сбит",
+        "сбита",
+        "сбито",
+        "минус",
+        "мінус",
+        "знищено"
+      ],
+      "action": "shorten",
+      "hold_seconds": 30,
+      "threat_types": [
+        "rocket",
+        "kab",
+        "drone"
+      ],
+      "sources": [
+        "telegram:*"
+      ],
+      "context_seconds": 180,
+      "allow_without_location": true,
+      "require_confirmed": true,
+      "regional_clear": false,
+      "reject_keywords": [
+        "не сбит",
+        "не збито"
+      ]
+    },
+    {
+      "name": "Потеря фиксации",
+      "enabled": true,
+      "keywords": [
+        "локаційно не фіксується",
+        "більше не фіксується",
+        "больше не фиксируется",
+        "без фиксации",
+        "без фіксації"
+      ],
+      "action": "ignore",
+      "hold_seconds": 120,
+      "threat_types": [
+        "rocket",
+        "kab",
+        "drone"
+      ],
+      "sources": [
+        "telegram:*"
+      ],
+      "context_seconds": 180,
+      "allow_without_location": true,
+      "require_confirmed": false,
+      "regional_clear": false,
+      "reject_keywords": []
+    }
+  ],
+  "tracking": {
+    "enabled": true,
+    "context_seconds": 180,
+    "movement_action": "shorten",
+    "movement_hold_seconds": 60,
+    "movement_keywords": [
+      "на",
+      "курс",
+      "через",
+      "далі",
+      "далее",
+      "рухається",
+      "движется",
+      "прямує",
+      "летит",
+      "над"
+    ],
+    "uncertain_keywords": [
+      "попередньо",
+      "предварительно",
+      "можливо",
+      "возможно",
+      "ймовірно",
+      "вероятно",
+      "не підтверджено",
+      "не подтверждено"
+    ],
+    "continuing_keywords": [
+      "ще",
+      "еще",
+      "ещё",
+      "другий",
+      "второй",
+      "наступний",
+      "следующий",
+      "продовжу",
+      "продолжа",
+      "новий пуск",
+      "новый пуск",
+      "повторні пуски",
+      "повторные пуски",
+      "загроза зберігається",
+      "угроза сохраняется"
+    ],
+    "rocket_keywords": [
+      "ракет",
+      "баллист",
+      "балист",
+      "баліст",
+      "іскандер",
+      "искандер",
+      "швидкісна ціль",
+      "скоростная цель",
+      "с-300",
+      "с-400",
+      "кинжал",
+      "кинджал",
+      "х-101",
+      "х-59",
+      "х-69",
+      "х-22",
+      "циркон"
+    ],
+    "bomb_keywords": [
+      "каб",
+      "кабы",
+      "каби",
+      "авіабомб",
+      "авиабомб",
+      "фаб",
+      "каба",
+      "кабів",
+      "кабов"
+    ],
+    "rocket_launch_keywords": [
+      "ту-95",
+      "ту-160",
+      "міг-31к",
+      "миг-31к"
+    ]
+  },
+  "approach_keywords": {
+    "launch": [
+      "пуск",
+      "запуск",
+      "злет",
+      "взлет",
+      "виліт",
+      "вылет",
+      "вильот",
+      "взлёт",
+      "зліт"
+    ],
+    "city": [
+      "над",
+      "в городе",
+      "у місті",
+      "в черте",
+      "над містом"
+    ],
+    "district": [
+      "над",
+      "в районе",
+      "у районі",
+      "в районі"
+    ],
+    "toward_district": [
+      "курс на",
+      "напрям",
+      "в сторону",
+      "у бік",
+      "в бік",
+      "летит на",
+      "летять на",
+      "на"
+    ],
+    "toward_city": [
+      "на",
+      "курс",
+      "напрям",
+      "в сторону",
+      "у бік"
+    ]
+  },
+  "source_stale_seconds": 60,
+  "api_stale_seconds": 60,
+  "safe_sound": {
+    "code": 0,
+    "name": "Норма (Heartbeat)",
+    "beep_count": 1,
+    "beep_duration_ms": 200,
+    "pause_between_ms": 0,
+    "interval_series_ms": 30000
   },
   "auto_transfer_to_plc": true
 }

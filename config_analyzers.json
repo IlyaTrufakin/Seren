@@ -1,0 +1,9 @@
+{
+  "port": 8765,
+  "timeout_s": 15,
+  "channels": [
+    "monitor1654",
+    "radar_kharkov"
+  ],
+  "publish_interval_s": 2
+}

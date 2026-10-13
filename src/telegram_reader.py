@@ -51,7 +51,19 @@ class TelegramWebReader:
         result = []
         for chunk in chunks:
             ident = re.search(r'data-post="([^\"]+)"', chunk)
-            text = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>', chunk, re.S)
+            # Replies contain a second message_text block before the actual post body.
+            # Exclude the quoted block so it cannot replace the text under this post's ID.
+            reply = re.search(r'<a\b[^>]*class="[^"]*\btgme_widget_message_reply\b[^"]*"[^>]*>.*?</a>', chunk, re.S)
+            reply_to = None
+            reply_text = ''
+            if reply:
+                link = re.search(r'href="[^"]*/([A-Za-z0-9_]+)/(\d+)(?:\?[^"]*)?"', reply[0])
+                if link:reply_to = link[1].lower()+'/'+link[2]
+                quote = re.search(r'<div class="tgme_widget_message_text[^>]*>(.*?)</div>',reply[0],re.S)
+                if quote:reply_text = html.unescape(re.sub(r'<[^>]+>',' ',re.sub(r'<br\s*/?>','\n',quote[1]))).strip()
+            body = re.sub(r'<a\b[^>]*class="[^"]*\btgme_widget_message_reply\b[^"]*"[^>]*>.*?</a>',
+                          '', chunk, flags=re.S)
+            text = re.search(r'<div class="tgme_widget_message_text(?![^"]*\bjs-message_reply_text\b)[^>]*>(.*?)</div>', body, re.S)
             date = re.search(r'<time datetime="([^\"]+)"', chunk)
             if not (ident and text and date):
                 continue
@@ -61,7 +73,7 @@ class TelegramWebReader:
             except ValueError:
                 continue
             result.append(dict(id=ident[1], channel=channel, text=cleaned.strip(),
-                               datetime_iso=date[1], timestamp=published))
+                               datetime_iso=date[1], timestamp=published, reply_to=reply_to, reply_text=reply_text))
         return result
 
     def _fetch_channel_messages(self, channel):
@@ -163,7 +175,7 @@ class TelegramTelethonReader:
                         for msg in reversed(messages):
                             if msg.raw_text:
                                 self.on_message(dict(id=str(msg.id), channel=channel, text=msg.raw_text,
-                                                     timestamp=msg.date.timestamp(), datetime_iso=msg.date.isoformat()))
+                                                     timestamp=msg.date.timestamp(), datetime_iso=msg.date.isoformat(), reply_to=(channel+'/'+str(msg.reply_to_msg_id) if msg.reply_to_msg_id else None)))
                     except Exception as exc:
                         self._health(channel, False, str(exc))
 
@@ -176,7 +188,7 @@ class TelegramTelethonReader:
                     if channel in entities:
                         self._health(channel, True)
                         self.on_message(dict(id=str(event.id), channel=channel, text=event.raw_text,
-                                             timestamp=event.date.timestamp(), datetime_iso=event.date.isoformat()))
+                                             timestamp=event.date.timestamp(), datetime_iso=event.date.isoformat(), reply_to=(channel+'/'+str(event.message.reply_to_msg_id) if event.message.reply_to_msg_id else None)))
 
                 while not self._stop_event.is_set():
                     for channel, entity in entities.items():

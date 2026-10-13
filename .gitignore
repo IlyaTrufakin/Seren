@@ -43,3 +43,10 @@ test_results/
 
 # Machine Expert diagnostic log
 depurlog.schn
+
+# Runtime locks, IPC key, supervisor health
+runtime/
+
+# Operational logs and per-computer background-mode switch
+logs/
+config_background.json

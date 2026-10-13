@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "channel": "radar_kharkov",
+  "publish_to_main": true,
+  "base_profile": "monitor1654",
+  "adapted_on": "2026-10-12",
+  "connected_on": "2026-10-12"
+}

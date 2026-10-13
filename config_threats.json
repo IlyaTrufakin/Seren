@@ -11,7 +11,8 @@
   "telegram_phone": null,
   "telegram_channels": [
     "monitor1654",
-    "radar_kharkov"
+    "radar_kharkov",
+    "tlknewsua"
   ],
   "telegram_poll_interval_s": 4,
   "district": {
@@ -382,6 +383,7 @@
       "api_levels": [
         3
       ],
+      "api_levels_by_type": {},
       "sound": {
         "code": 1,
         "name": "Критическая — Ракетная",
@@ -413,6 +415,7 @@
       "api_levels": [
         2
       ],
+      "api_levels_by_type": {},
       "sound": {
         "code": 2,
         "name": "Критическая — Бомбовая",
@@ -432,21 +435,23 @@
         "alarmmap"
       ],
       "approaches": [
-        "district",
-        "toward_district"
+        "district"
       ],
       "drone_groups": [
-        0,
-        1,
-        2,
         3
       ],
       "api_types": [
-        "fight-drones"
+        "fight-drones",
+        "fpv-drones",
+        "fpv",
+        "air"
       ],
       "api_levels": [
         2
       ],
+      "api_levels_by_type": {
+        "air": []
+      },
       "sound": {
         "code": 3,
         "name": "Критическая — Дроновая",
@@ -474,8 +479,10 @@
         "air"
       ],
       "api_levels": [
+        2,
         3
       ],
+      "api_levels_by_type": {},
       "sound": {
         "code": 4,
         "name": "Критическая — Неопознанная",
@@ -503,13 +510,15 @@
         "air"
       ],
       "api_levels": [
-        2
+        2,
+        3
       ],
+      "api_levels_by_type": {},
       "sound": {
         "code": 5,
         "name": "Высокая — Ракетная",
         "beep_count": 2,
-        "beep_duration_ms": 800,
+        "beep_duration_ms": 10,
         "pause_between_ms": 600,
         "interval_series_ms": 8000
       }
@@ -533,6 +542,7 @@
       "api_levels": [
         2
       ],
+      "api_levels_by_type": {},
       "sound": {
         "code": 6,
         "name": "Высокая — Бомбовая",
@@ -552,21 +562,25 @@
         "alarmmap"
       ],
       "approaches": [
-        "city",
-        "toward_city"
+        "city"
       ],
       "drone_groups": [
-        0,
-        1,
-        2,
         3
       ],
       "api_types": [
-        "fight-drones"
+        "fight-drones",
+        "fpv-drones",
+        "fpv",
+        "air"
       ],
       "api_levels": [
         2
       ],
+      "api_levels_by_type": {
+        "air": [
+          2
+        ]
+      },
       "sound": {
         "code": 7,
         "name": "Высокая — Дроновая",
@@ -594,8 +608,10 @@
         "air"
       ],
       "api_levels": [
-        2
+        2,
+        3
       ],
+      "api_levels_by_type": {},
       "sound": {
         "code": 8,
         "name": "Высокая — Неопознанная",
@@ -622,13 +638,16 @@
         "air"
       ],
       "api_levels": [
-        1
+        1,
+        2,
+        3
       ],
+      "api_levels_by_type": {},
       "sound": {
         "code": 9,
         "name": "Низкая — Ракетная",
         "beep_count": 1,
-        "beep_duration_ms": 100,
+        "beep_duration_ms": 10,
         "pause_between_ms": 600,
         "interval_series_ms": 5000
       }
@@ -649,7 +668,11 @@
       "api_types": [
         "kab-bombs"
       ],
-      "api_levels": [],
+      "api_levels": [
+        1,
+        2
+      ],
+      "api_levels_by_type": {},
       "sound": {
         "code": 10,
         "name": "Низкая — Бомбовая",
@@ -663,24 +686,37 @@
       "id": "low_drone",
       "severity": "low",
       "threat_type": "drone",
-      "enabled": false,
+      "enabled": true,
       "sources": [
-        "telegram:*",
         "alarmmap"
       ],
       "approaches": [
         "launch"
       ],
-      "drone_groups": [],
-      "api_types": [
-        "fight-drones"
+      "drone_groups": [
+        3
       ],
-      "api_levels": [],
+      "api_types": [
+        "fight-drones",
+        "fpv-drones",
+        "fpv",
+        "air"
+      ],
+      "api_levels": [
+        1,
+        2
+      ],
+      "api_levels_by_type": {
+        "air": [
+          1,
+          2
+        ]
+      },
       "sound": {
         "code": 11,
         "name": "Низкая — Дроновая",
         "beep_count": 1,
-        "beep_duration_ms": 300,
+        "beep_duration_ms": 100,
         "pause_between_ms": 400,
         "interval_series_ms": 15000
       }
@@ -694,16 +730,16 @@
         "telegram:*",
         "alarmmap"
       ],
-      "approaches": [
-        "launch"
-      ],
+      "approaches": [],
       "drone_groups": [],
       "api_types": [
         "air"
       ],
       "api_levels": [
-        1
+        1,
+        2
       ],
+      "api_levels_by_type": {},
       "sound": {
         "code": 12,
         "name": "Низкая — Неопознанная",
@@ -983,9 +1019,18 @@
     "code": 0,
     "name": "Норма (Heartbeat)",
     "beep_count": 1,
-    "beep_duration_ms": 100,
+    "beep_duration_ms": 10,
     "pause_between_ms": 300,
     "interval_series_ms": 5000
   },
+  "no_link_sound": {
+    "code": 13,
+    "name": "Нет связи с онлайн-источниками",
+    "beep_count": 2,
+    "beep_duration_ms": 200,
+    "pause_between_ms": 300,
+    "interval_series_ms": 5000
+  },
+  "api_classification_version": 2,
   "auto_transfer_to_plc": true
 }

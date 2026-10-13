@@ -12,6 +12,7 @@ class SoundProfile:
     beep_duration_ms: int = 1000 # Длительность гудка (мс) (%MW4)
     pause_between_ms: int = 500  # Пауза между гудками в серии (мс) (%MW5)
     interval_series_ms: int = 5000# Пауза между сериями гудков (мс) (%MW6)
+    total_duration_s: int = 0    # Общее время профиля, с; 0 — без ограничения
 
 @dataclass
 class SoundProfilesConfig:
@@ -107,6 +108,11 @@ class SignificantEvent:
     drone_group: int = 0
     text: str = ""
     is_critical: bool = False
+    event_id: str = ""
+    direction: str = "Не указано"
+    proximity: str = "Не определено"
+    launch_detected: bool = False
+    outcome: str = ""
 
 @dataclass
 class ThreatStatus:
@@ -136,6 +142,10 @@ class ThreatStatus:
     sound_pause_ms: int = 0      # %MW5: Пауза между гудками
     sound_interval_ms: int = 0   # %MW6: Пауза между сериями
     sound_profile_name: str = "Тишина"
+    sound_total_duration_s: int = 0
+    sound_elapsed_s: int = 0
+    sound_remaining_s: int = 0
+    sound_timer_expired: bool = False
 
     # === Детализация источника 1: API (alarmmap.online) ===
     alarmmap_online: bool = False
@@ -151,6 +161,11 @@ class ThreatStatus:
     alarmmap_types_summary: str = ""
     alarmmap_duration_summary: str = ""
     alarmmap_full_text: str = ""
+
+    external_analyzers: Dict = field(default_factory=dict)
+    external_server_error: str = ""
+    api_rocket_messages: List[Dict] = field(default_factory=list)
+    api_rocket_messages_error: str = ''
 
     # === Детализация источника 2: Telegram каналы ===
     tg_online: bool = False
@@ -178,13 +193,20 @@ class ThreatStatus:
     alarmmap_catalog: List[Dict] = field(default_factory=list)
     last_resolution: str = ""
     selected_event_ids: List[str] = field(default_factory=list)
+    api_baseline: Dict = field(default_factory=dict)
+    telegram_contributions: List[Dict] = field(default_factory=list)
+    active_threat_types: List[str] = field(default_factory=list)
+    channel_states: Dict = field(default_factory=dict)
+    formation_changes: List[Dict] = field(default_factory=list)
+    formation_text: str = ""
 
 
 SEVERITIES = {"critical": "Критическая", "high": "Высокая", "low": "Низкая"}
 THREAT_TYPES = {"rocket": "Ракетная", "kab": "Бомбовая", "drone": "Дроновая", "unknown": "Неопознанная"}
-APPROACHES = {"launch": "Пуск", "city": "Над городом",
+NO_LINK_SOUND_CODE = len(SEVERITIES) * len(THREAT_TYPES) + 1
+APPROACHES = {"reported": "Объявленная угроза без позиции", "shelter": "Призыв к укрытию", "launch": "Пуск", "city": "Над городом",
               "district": "Над районом", "toward_district": "Направление на район",
-              "toward_city": "Направление на город"}
+              "toward_city": "Направление на город", "prelaunch": "Угроза пуска (не подтверждён)", "direct_city": "Прямая угроза городу", "region": "Область / вне города", "outside": "Вне города", "away_city": "Движение от города"}
 
 
 @dataclass
@@ -200,6 +222,10 @@ class EndCondition:
     allow_without_location: bool = False
     require_confirmed: bool = True
     regional_clear: bool = False
+    global_without_location: bool = False
+    require_context_type: bool = False
+    required_keywords: List[str] = field(default_factory=list)
+    allow_continuing: bool = False
     reject_keywords: List[str] = field(default_factory=list)
 
 
@@ -236,6 +262,14 @@ class TrackingConfig:
         "ракет", "баллист", "балист", "баліст", "іскандер", "искандер", "швидкісна ціль", "скоростная цель",
         "с-300", "с-400", "кинжал", "кинджал", "х-101", "х-59", "х-69", "х-22", "циркон"])
     bomb_keywords: List[str] = field(default_factory=lambda: ["каб", "каба", "кабы", "каби", "кабів", "кабов", "авіабомб", "авиабомб", "фаб"])
+    generic_city_requires_reply_context: bool = False
+    generic_city_level: int = 0
+    generic_target_type: str = "drone"
+    generic_target_keywords: List[str] = field(default_factory=list)
+    regional_city_direction_keywords: List[str] = field(default_factory=list)
+    confirmed_launch_keywords: List[str] = field(default_factory=list)
+    hold_peak_types: List[str] = field(default_factory=list)
+    urban_direction_drone_is_city: bool = True
     rocket_launch_keywords: List[str] = field(default_factory=lambda: ["ту-95", "ту-160", "міг-31к", "миг-31к"])
 
 
@@ -250,6 +284,7 @@ class AlarmRule:
     drone_groups: List[int] = field(default_factory=lambda: [0, 1, 2, 3])
     api_types: List[str] = field(default_factory=list)
     api_levels: List[int] = field(default_factory=list)
+    api_levels_by_type: Dict[str, List[int]] = field(default_factory=dict)
     # API не сообщает положение цели: это отдельный фильтр по type+level.
     sound: SoundProfile = field(default_factory=SoundProfile)
 
@@ -267,7 +302,7 @@ def default_alarm_rules():
             api_type_map = {
                 "rocket": ["air"],
                 "kab": ["kab-bombs"],
-                "drone": ["fight-drones"],
+                "drone": ["fight-drones", "fpv-drones", "fpv", "air"],
                 "unknown": ["air"]
             }
             rules.append(AlarmRule(
@@ -276,6 +311,8 @@ def default_alarm_rules():
                 drone_groups=(drone_groups if kind == "drone" else []),
                 api_types=api_type_map[kind],
                 api_levels=(levels if kind in ("rocket", "unknown") else {"critical": [2], "high": [1], "low": []}[degree]),
+                api_levels_by_type=({"air": [] if degree == "critical" else levels}
+                                    if kind == "drone" else {}),
                 sound=SoundProfile(code, f"{SEVERITIES[degree]} — {THREAT_TYPES[kind]}",
                                    {"critical": 3, "high": 2, "low": 1}[degree],
                                    {"critical": 1000, "high": 700, "low": 300}[degree],
@@ -310,6 +347,10 @@ class DistrictConfig:
         "перебувайте в укриттях", "находитесь в укрытиях",
         "в безпечні місця", "в безопасные места"
     ])
+    urban_keywords: List[str] = field(default_factory=list)
+    ignored_location_keywords: List[str] = field(default_factory=list)
+    regional_keywords: List[str] = field(default_factory=list)
+    ignored_message_keywords: List[str] = field(default_factory=list)
     ttl_seconds: int = 600       # Время удержания угрозы (10 минут)
 
 @dataclass
@@ -396,16 +437,26 @@ class ThreatSystemConfig:
     end_conditions: List[EndCondition] = field(default_factory=default_end_conditions)
     tracking: TrackingConfig = field(default_factory=TrackingConfig)
     approach_keywords: Dict[str, List[str]] = field(default_factory=lambda: {
+        "reported": [],
+        "shelter": [],
+        "prelaunch": [],
+        "direct_city": [],
+        "region": [],
         "launch": ["пуск", "запуск", "злет", "взлет", "виліт", "вылет"],
         "city": ["над", "в городе", "у місті", "в черте", "над містом"],
         "toward_city": ["на", "курс", "напрям", "в сторону", "у бік", "в бік"],
         "district": ["над", "в районе", "у районі", "в районі"],
+        "outside": ["за городом", "вне города", "поза містом", "за межами міста"],
+        "away_city": ["от города", "від міста", "за город", "за місто"],
         "toward_district": ["курс на", "напрям", "в сторону", "у бік", "в бік", "летит на", "летять на", "на "]
     })
     source_stale_seconds: int = 60
     api_stale_seconds: int = 60
     safe_sound: SoundProfile = field(default_factory=lambda: SoundProfile(
         0, "Отсутствие тревог", 1, 200, 0, 30000))
+    no_link_sound: SoundProfile = field(default_factory=lambda: SoundProfile(
+        NO_LINK_SOUND_CODE, "Нет связи с онлайн-источниками", 2, 200, 300, 5000))
+    api_classification_version: int = 2
     auto_transfer_to_plc: bool = True   # Автоматически отправлять вычисленные регистры в ПЛК
 
     @classmethod
@@ -423,6 +474,13 @@ class ThreatSystemConfig:
             cfg.api_stale_seconds = int(d.get("api_stale_seconds", 60))
             cfg.approach_keywords = d.get("approach_keywords", cfg.approach_keywords)
             cfg.approach_keywords.setdefault("toward_city", ["на", "курс", "напрям", "в сторону", "у бік"])
+            cfg.approach_keywords.setdefault("reported", [])
+            cfg.approach_keywords.setdefault("shelter", [])
+            cfg.approach_keywords.setdefault("prelaunch", [])
+            cfg.approach_keywords.setdefault("direct_city", [])
+            cfg.approach_keywords.setdefault("region", [])
+            cfg.approach_keywords.setdefault("outside", ["за городом", "вне города", "поза містом", "за межами міста"])
+            cfg.approach_keywords.setdefault("away_city", ["от города", "від міста", "за город", "за місто"])
             if "tracking" in d:
                 cfg.tracking = TrackingConfig(**d["tracking"])
             if "end_conditions" in d:
@@ -445,6 +503,8 @@ class ThreatSystemConfig:
                 cfg.district.district_keywords = dist.get("district_keywords", cfg.district.district_keywords)
                 cfg.district.city_keywords = dist.get("city_keywords", cfg.district.city_keywords)
                 cfg.district.critical_alert_keywords = dist.get("critical_alert_keywords", cfg.district.critical_alert_keywords)
+                for key in ('ignored_location_keywords','regional_keywords','ignored_message_keywords','urban_keywords'):
+                    setattr(cfg.district,key,dist.get(key,[]))
 
             if "bit_mapping" in d:
                 bm = d["bit_mapping"]
@@ -524,6 +584,15 @@ class ThreatSystemConfig:
                         rule.sound = old
             cfg.safe_sound = SoundProfile(**d["safe_sound"]) if "safe_sound" in d else cfg.sound_profiles.safe_heartbeat
             cfg.safe_sound.code = 0
+            if "no_link_sound" in d:
+                cfg.no_link_sound = SoundProfile(**d["no_link_sound"])
+            cfg.no_link_sound.code = NO_LINK_SOUND_CODE
+            # Add only new API paths; preserve user sound and Telegram settings.
+            if d.get("api_classification_version", 1) < 2:
+                for rule in cfg.alarm_rules:
+                    if rule.threat_type == "drone" and "fight-drones" in rule.api_types:
+                        rule.api_types = list(dict.fromkeys(rule.api_types + ["fpv-drones", "fpv", "air"]))
+                        rule.api_levels_by_type.setdefault("air", {"critical": [], "high": [2], "low": [1]}[rule.severity])
             cfg.validate()
         except Exception as e:
             raise ValueError(f"Не удалось загрузить настройки {path}: {e}") from e
@@ -552,6 +621,11 @@ class ThreatSystemConfig:
                 raise ValueError("Группа дрона: 0 (неизвестна/ложные), 1, 2 или 3")
             if any(not isinstance(n, int) or n < 0 for n in rule.api_levels):
                 raise ValueError("Уровни API должны быть неотрицательными целыми")
+            if (not isinstance(rule.api_levels_by_type, dict) or any(
+                    not isinstance(kind, str) or not isinstance(levels, list) or any(
+                        not isinstance(n, int) or isinstance(n, bool) or n < 0 for n in levels)
+                    for kind, levels in rule.api_levels_by_type.items())):
+                raise ValueError("Уровни отдельных типов API должны быть списками неотрицательных целых")
             if any(src != "alarmmap" and not re.fullmatch(r"telegram:(?:\*|[A-Za-z0-9_]+)", src) for src in rule.sources):
                 raise ValueError("Источник: alarmmap, telegram:* или telegram:имя_канала")
             if rule.enabled and not rule.sources:
@@ -559,12 +633,17 @@ class ThreatSystemConfig:
             for source in rule.sources:
                 if source.startswith("telegram:") and source != "telegram:*" and source.split(":", 1)[1].lower() not in normalized_channels:
                     raise ValueError(f"Добавьте канал {source} во вкладку Источники")
-            if rule.enabled and rule.threat_type == "drone" and not rule.drone_groups:
-                raise ValueError(f"Выберите группы дронов для {rule.id}")
+            if (rule.enabled and rule.threat_type == "drone" and not rule.drone_groups
+                    and any(source.startswith("telegram:") for source in rule.sources)):
+                raise ValueError(f"Выберите группы дронов Telegram для {rule.id}")
         if set(self.approach_keywords) != set(APPROACHES) or any(
                 not isinstance(words, list) or any(not isinstance(w, str) for w in words)
                 for words in self.approach_keywords.values()):
             raise ValueError("Некорректный словарь приближения")
+        if self.tracking.generic_city_level not in (0,1,2,4):
+            raise ValueError('Уровень самостоятельной цели на город: 0, 1, 2 или 4')
+        if self.tracking.generic_target_type not in ("rocket","drone"):
+            raise ValueError("Тип неопределённой цели: rocket или drone")
         if self.tracking.context_seconds <= 0 or self.tracking.movement_hold_seconds < 0:
             raise ValueError("Окно контекста должно быть положительным; выдержка — неотрицательной")
         if self.tracking.movement_action not in ("keep", "replace", "shorten"):
@@ -593,7 +672,9 @@ class ThreatSystemConfig:
         for t in [self.schedule.start_time, self.schedule.end_time]:
             if not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", t):
                 raise ValueError("Время расписания: ЧЧ:ММ")
-        for p in [self.safe_sound] + [r.sound for r in self.alarm_rules]:
+        for p in [self.safe_sound, self.no_link_sound] + [r.sound for r in self.alarm_rules]:
+            if type(p.total_duration_s) is not int or not 0 <= p.total_duration_s <= 86400:
+                raise ValueError("Общее время звука: целое число секунд 0..86400 (0 — без ограничения)")
             if any(not isinstance(v, int) or not 0 <= v <= 65535 for v in
                    [p.code, p.beep_count, p.beep_duration_ms, p.pause_between_ms, p.interval_series_ms]):
                 raise ValueError("Параметры звука должны быть в диапазоне 0..65535")
@@ -607,6 +688,9 @@ class ThreatSystemConfig:
         codes = [r.sound.code for r in self.alarm_rules]
         if set(codes) != set(range(1, len(self.alarm_rules) + 1)) or self.safe_sound.code != 0:
             raise ValueError(f"Коды тревог: 1..{len(self.alarm_rules)}; отсутствия тревог: 0")
+
+        if self.no_link_sound.code != NO_LINK_SOUND_CODE:
+            raise ValueError(f"Код звука отсутствия связи: {NO_LINK_SOUND_CODE}")
 
     def save(self, path: str = "config_threats.json") -> bool:
         """Атомарное сохранение всех настроек; при ошибке исходный файл сохраняется."""

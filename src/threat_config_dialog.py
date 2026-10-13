@@ -42,25 +42,77 @@ def parse_interval_series_ms(val_str):
     ms = int(round(ms / 1000)) * 1000
     return max(1000, ms)
 
+class DictionaryEditor(tk.Frame):
+    """Word-wrapped dictionary field with adaptive height and visible scrolling."""
+    def __init__(self, parent, height=3, **options):
+        super().__init__(parent, bg=options.get('bg', BG_MAIN))
+        self.minimum_lines = max(3, height)
+        defaults = dict(bg=BG_INPUT, fg=TEXT_MAIN, insertbackground=TEXT_MAIN,
+                        font=FONT_MONO, bd=1, relief='solid')
+        defaults.update(options)
+        self.text = tk.Text(self, width=1, height=self.minimum_lines, wrap='word', **defaults)
+        self.scrollbar = ttk.Scrollbar(self, orient='vertical', command=self.text.yview)
+        self.scrollbar.pack(side='right', fill='y')
+        self.text.pack(side='left', fill='both', expand=True)
+        self.text.configure(yscrollcommand=self.scrollbar.set)
+        self.text.bind('<Configure>', self._fit_height)
+        self.text.bind('<<Modified>>', self._modified)
+
+    def _modified(self, event=None):
+        if self.text.edit_modified():
+            self.text.edit_modified(False)
+            self._fit_height()
+
+    def _fit_height(self, event=None):
+        if self.text.winfo_width() < 20:
+            return
+        count = self.text.count('1.0', 'end-1c', 'displaylines')
+        lines = min(8, max(self.minimum_lines, (count[0] if count else 0) + 1))
+        if int(self.text.cget('height')) != lines:
+            self.text.configure(height=lines)
+
+    def get(self, *indices):
+        if indices:
+            return self.text.get(*indices)
+        return self.text.get('1.0', 'end-1c').replace('\n', ',')
+
+    def insert(self, index, value):
+        self.text.insert('1.0' if index == 0 else index, value)
+
+    def delete(self, first, last=None):
+        self.text.delete('1.0' if first == 0 else first, last)
+
+
 class ThreatConfigDialog(tk.Toplevel):
     """Окно конфигуратора анализатора угроз, районов и маппинга бит на ПЛК."""
-    def __init__(self, parent, current_config: ThreatSystemConfig, on_save_callback):
+    def __init__(self, parent, current_config: ThreatSystemConfig, on_save_callback, persist=True, channel_only=False):
         super().__init__(parent)
         self.title("Конфигуратор анализатора угроз и передачи на ПЛК")
-        self.geometry("1120x780")
-        self.minsize(980, 650)
+        width = min(1120, max(600, self.winfo_screenwidth() - 80))
+        height = min(780, max(480, self.winfo_screenheight() - 100))
+        self.geometry(f"{width}x{height}")
+        self.minsize(min(760, width), min(540, height))
+        self.resizable(True, True)
         self.configure(bg=BG_MAIN)
         self.transient(parent)
         self.grab_set()
 
         self.config = deepcopy(current_config)
         self.on_save = on_save_callback
+        self.persist = persist
+        self.channel_only = channel_only
 
         self._build_ui()
+        if self.channel_only:
+            self._hide_main_module_controls()
 
     def _build_ui(self):
+        # Reserve the footer before expandable notebooks, even on a short display.
+        btn_frame = tk.Frame(self, bg=BG_MAIN, padx=12, pady=10)
+        btn_frame.pack(fill="x", side="bottom")
         # Вкладки
         notebook = ttk.Notebook(self)
+        self.notebook = notebook
         notebook.pack(fill="both", expand=True, padx=12, pady=12)
 
         # 1. Вкладка "Источники данных"
@@ -102,14 +154,40 @@ class ThreatConfigDialog(tk.Toplevel):
         notebook.select(tab_rules)
 
         # Нижняя панель с кнопками
-        btn_frame = tk.Frame(self, bg=BG_MAIN, padx=12, pady=10)
-        btn_frame.pack(fill="x", side="bottom")
-
         btn_save = ttk.Button(btn_frame, text="Сохранить настройки", style="Success.TButton", command=self._save_and_close)
         btn_save.pack(side="right", padx=(8, 0))
 
         btn_cancel = ttk.Button(btn_frame, text="Отмена", style="Outline.TButton", command=self.destroy)
         btn_cancel.pack(side="right")
+
+    def _hide_main_module_controls(self):
+        self.title('Анализатор Telegram-канала — словари, фильтры и правила')
+        for tab in list(self.notebook.tabs()):
+            title=self.notebook.tab(tab,'text')
+            if title in ('Биты ПЛК','Тихий час','Звуковые профили'):
+                self.notebook.forget(tab)
+            elif title=='Источники':
+                self.notebook.tab(tab,text='Telegram-канал')
+        self.var_am_enabled.set(False)
+        self.var_auto_send.set(False)
+        def hide(widget):
+            for child in widget.winfo_children():
+                if isinstance(child,tk.LabelFrame) and 'AlarmMap' in child.cget('text'):
+                    child.pack_forget()
+                if isinstance(child,tk.Label):
+                    text=child.cget('text')
+                    if text.startswith('API — типы:') or text.startswith('API air без уточнения'):
+                        child.master.pack_forget()
+                    elif 'Типы и номера уровней API' in text or text.startswith('air — общая воздушная тревога'):
+                        child.pack_forget()
+                    elif 'Источники' in text and 'API' in text:
+                        child.configure(text='Источники Telegram (@канал):')
+                    elif text.startswith('Сначала степень:'):
+                        child.configure(text='Степень: критическая → высокая → низкая. Правила используют только сообщения выбранного Telegram-канала.')
+                    elif 'типы и номера API' in text.lower():
+                        child.configure(text='Маркеры через запятую. Для района требуется слово из вкладки «Районы».')
+                hide(child)
+        hide(self)
 
     def _build_sources_tab(self, parent):
         # Блок AlarmMap
@@ -183,6 +261,7 @@ class ThreatConfigDialog(tk.Toplevel):
         self.entry_api_hash.pack(side="left")
 
     def _build_districts_tab(self, parent):
+        parent = self._scroll_body(parent)
         card = tk.LabelFrame(parent, text="  Конфигурация целевого сектора и ориентиров  ", bg=BG_CARD, fg=TEXT_ACCENT, font=FONT_SUBTITLE, padx=10, pady=8)
         card.pack(fill="both", expand=True)
 
@@ -199,7 +278,7 @@ class ThreatConfigDialog(tk.Toplevel):
         self.entry_ttl.pack(side="left")
 
         tk.Label(card, text="Ключевые слова района и ориентиров (стык: Основянский, Слободской, Немышля, Новые Дома, Одесская, Аэропорт):", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(4, 2))
-        self.txt_dist_kw = tk.Text(card, height=4, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_dist_kw = DictionaryEditor(card, height=4, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
         self.txt_dist_kw.pack(fill="x", pady=(0, 6))
         self.txt_dist_kw.insert("1.0", ", ".join(self.config.district.district_keywords))
 
@@ -208,9 +287,20 @@ class ThreatConfigDialog(tk.Toplevel):
                  bg=BG_CARD, fg=TEXT_MUTED, wraplength=900, justify="left").pack(anchor="w", pady=6)
 
         tk.Label(card, text="Ключевые слова города Харьков (общие):", bg=BG_CARD, fg=TEXT_MAIN, font=FONT_REGULAR, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
-        self.txt_city_kw = tk.Text(card, height=3, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_city_kw = DictionaryEditor(card, height=3, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
         self.txt_city_kw.pack(fill="x")
         self.txt_city_kw.insert("1.0", ", ".join(self.config.district.city_keywords))
+
+        self.extra_location_inputs={}
+        for key,label in [('regional_keywords','Областные направления (без нахождения над городом)'),
+                          ('ignored_location_keywords','Дальние населённые пункты: не повышать тревогу города'),
+                          ('urban_keywords','Ориентиры внутри городской застройки'),
+                          ('ignored_message_keywords','Информационные сообщения: исключающие маркеры')]:
+            tk.Label(card,text=label,bg=BG_CARD,fg=TEXT_ACCENT).pack(anchor='w',pady=(8,2))
+            entry=DictionaryEditor(card)
+            entry.insert(0,', '.join(getattr(self.config.district,key)))
+            entry.pack(fill='x')
+            self.extra_location_inputs[key]=entry
 
     def _build_plc_tab(self, parent):
         card = tk.LabelFrame(parent, text="  Унифицированная битовая карта слова данных ПЛК (%MW0)  ", bg=BG_CARD, fg=TEXT_ACCENT, font=FONT_SUBTITLE, padx=10, pady=8)
@@ -320,6 +410,7 @@ class ThreatConfigDialog(tk.Toplevel):
         self.entry_sched_end.pack(side="left")
 
     def _build_drones_tab(self, parent):
+        parent = self._scroll_body(parent)
         card = tk.LabelFrame(
             parent,
             text="  Классификатор названий беспилотников (4 группы опасности: 0 = мин., 3 = макс.)  ",
@@ -344,25 +435,25 @@ class ThreatConfigDialog(tk.Toplevel):
 
         # Группа 3: Тяжелые камикадзе (Самая высокая)
         tk.Label(card, text="🔴 Группа 3: Самая высокая опасность (Тяжелые ударные камикадзе: Шахед, Герань, Гербера, Италмас...):", bg=BG_CARD, fg="#f87171", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
-        self.txt_drone_g3 = tk.Text(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g3 = DictionaryEditor(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
         self.txt_drone_g3.pack(fill="x", pady=(0, 4))
         self.txt_drone_g3.insert("1.0", ", ".join(self.config.drone_dict.group3_keywords))
 
         # Группа 2: Тактические ударные / FPV (Средняя)
         tk.Label(card, text="🟠 Группа 2: Средняя опасность (Тактические ударные: Молния, Ланцет, FPV):", bg=BG_CARD, fg="#fb923c", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
-        self.txt_drone_g2 = tk.Text(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g2 = DictionaryEditor(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
         self.txt_drone_g2.pack(fill="x", pady=(0, 4))
         self.txt_drone_g2.insert("1.0", ", ".join(self.config.drone_dict.group2_keywords))
 
         # Группа 1: Разведчики (Низкая)
         tk.Label(card, text="🟡 Группа 1: Низкая опасность (Разведчики: Суперкам, Зала, Орлан):", bg=BG_CARD, fg="#fcd34d", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
-        self.txt_drone_g1 = tk.Text(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g1 = DictionaryEditor(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
         self.txt_drone_g1.pack(fill="x", pady=(0, 4))
         self.txt_drone_g1.insert("1.0", ", ".join(self.config.drone_dict.group1_keywords))
 
         # Группа 0: Ложные цели / Неопознанные БпЛА (Самая низкая)
         tk.Label(card, text="🟢 Группа 0: Самая низкая опасность (Ложные цели, фанера, приманки без БЧ, неопознанные / общий БпЛА):", bg=BG_CARD, fg="#34d399", font=FONT_BOLD, wraplength=700, justify="left").pack(anchor="w", pady=(2, 2))
-        self.txt_drone_g0 = tk.Text(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
+        self.txt_drone_g0 = DictionaryEditor(card, height=2, bg=BG_INPUT, fg=TEXT_MAIN, font=FONT_MONO, bd=1, relief="solid")
         self.txt_drone_g0.pack(fill="x", pady=(0, 2))
         self.txt_drone_g0.insert("1.0", ", ".join(getattr(self.config.drone_dict, "group0_keywords", [])))
 
@@ -401,14 +492,22 @@ class ThreatConfigDialog(tk.Toplevel):
         tk.Label(headers_frame, text="Пауза серий (с/мс)", width=16, bg=BG_CARD, fg=TEXT_MAIN, font=FONT_BOLD).pack(side="left", padx=2)
 
         self.sound_profile_entries = {}
-        profiles_list = [("safe", "0: Отсутствие тревог", self.config.safe_sound)] + [
+        profiles_list = [("safe", "0: Отсутствие тревог", self.config.safe_sound),
+                         ("no_link", "Нет связи с онлайн-источниками", self.config.no_link_sound)] + [
             (rule.id, f"{rule.sound.code}: {rule.sound.name}", rule.sound)
             for rule in self.config.alarm_rules
         ]
 
         # Контейнер для строк со скроллом если нужно
-        container = tk.Frame(card, bg=BG_CARD)
-        container.pack(fill="both", expand=True)
+        sound_canvas = tk.Canvas(card, bg=BG_CARD, highlightthickness=0)
+        sound_scroll = ttk.Scrollbar(card, orient="vertical", command=sound_canvas.yview)
+        sound_canvas.configure(yscrollcommand=sound_scroll.set)
+        sound_scroll.pack(side="right", fill="y")
+        sound_canvas.pack(side="left", fill="both", expand=True)
+        container = tk.Frame(sound_canvas, bg=BG_CARD)
+        sound_window = sound_canvas.create_window((0, 0), window=container, anchor="nw")
+        container.bind("<Configure>", lambda event: sound_canvas.configure(scrollregion=sound_canvas.bbox("all")))
+        sound_canvas.bind("<Configure>", lambda event: sound_canvas.itemconfigure(sound_window, width=event.width))
 
         for prof_key, prof_label, p_obj in profiles_list:
             row = tk.Frame(container, bg=BG_CARD)
@@ -468,6 +567,8 @@ class ThreatConfigDialog(tk.Toplevel):
 
             city_kws = [k.strip().lower() for k in self.txt_city_kw.get("1.0", "end").replace("\n", ",").split(",") if k.strip()]
             self.config.district.city_keywords = city_kws
+            for key,entry in self.extra_location_inputs.items():
+                setattr(self.config.district,key,[v.strip().lower() for v in entry.get().split(',') if v.strip()])
 
             # Парсинг бит передачи в ПЛК
             self.config.auto_transfer_to_plc = self.var_auto_send.get()
@@ -514,19 +615,34 @@ class ThreatConfigDialog(tk.Toplevel):
                     rule.drone_groups = [k for k, v in inputs["groups"].items() if v.get()]
                 rule.api_types = [v.strip() for v in inputs["api_types"].get().split(",") if v.strip()]
                 rule.api_levels = [int(v.strip()) for v in inputs["api_levels"].get().split(",") if v.strip()]
+                if "air_levels" in inputs:
+                    rule.api_levels_by_type["air"] = [int(v.strip()) for v in inputs["air_levels"].get().split(",") if v.strip()]
             for approach, entry in self.approach_entries.items():
                 self.config.approach_keywords[approach] = [v.strip().lower() for v in entry.get().split(",") if v.strip()]
             self.config.source_stale_seconds = int(self.entry_source_stale.get())
             self.config.api_stale_seconds = int(self.entry_api_stale.get())
             self.config.alarmmap_katottg = self.entry_katottg.get().strip()
             for key, entries in self.sound_profile_entries.items():
-                p_obj = self.config.safe_sound if key == "safe" else next(r.sound for r in self.config.alarm_rules if r.id == key)
+                if key == "safe":
+                    p_obj = self.config.safe_sound
+                elif key == "no_link":
+                    p_obj = self.config.no_link_sound
+                else:
+                    p_obj = next(r.sound for r in self.config.alarm_rules if r.id == key)
                 e_cnt, e_dur, e_pau, e_int = entries
                 p_obj.beep_count = int(e_cnt.get().strip())
                 p_obj.beep_duration_ms = parse_duration_ms(e_dur.get(), min_ms=10)
                 p_obj.pause_between_ms = parse_duration_ms(e_pau.get(), min_ms=0)
                 p_obj.interval_series_ms = parse_interval_series_ms(e_int.get())
             self._save_heuristics()
+            if self.channel_only:
+                self.config.alarmmap_enabled=False
+                self.config.auto_transfer_to_plc=False
+                for rule in self.config.alarm_rules:
+                    rule.sources=[source for source in rule.sources if source.startswith('telegram:')]
+                    rule.api_types=[];rule.api_levels=[];rule.api_levels_by_type={}
+                    if not rule.sources:
+                        rule.enabled=False
             self.config.validate()
 
             # Сохранение конфигурации в JSON
@@ -535,18 +651,23 @@ class ThreatConfigDialog(tk.Toplevel):
             if self.on_save:
                 self.on_save(self.config)
 
-            messagebox.showinfo("Сохранено", "Настройки анализатора угроз, словаря БпЛА и звуковых профилей сохранены!")
+            messagebox.showinfo("Сохранено" if self.persist else "Применено в тесте",
+                "Настройки сохранены!" if self.persist else "Правила применены к архивному тесту; рабочие настройки не изменены.")
             self.destroy()
         except Exception as e:
             messagebox.showerror("Ошибка ввода", f"Проверьте корректность введенных данных:\n{e}")
 
     def _save_to_json(self):
-        self.config.save()
+        if self.persist:
+            self.config.save()
+        else:
+            self.config.validate()
 
     def _build_rules_tab(self, parent):
         tk.Label(parent, text="Сначала степень: критическая → высокая → низкая. Внутри степени: ракета → бомба → дрон.\n"
                  "Источники и значения внутри одного поля объединены по ИЛИ; разные поля — по И. "
-                 "API использует тип + уровень, Telegram — приближение + группу.",
+                 "API: явный тип имеет приоритет над air; без уточнения air/3 — ракета, air/1–2 — дрон.\n"
+                 "Telegram использует приближение + группу. Неопознанный тип сохраняется для Telegram.",
                  bg=BG_MAIN, fg=TEXT_MAIN, justify="left", wraplength=1020).pack(anchor="w", padx=12, pady=8)
         notebook = ttk.Notebook(parent)
         notebook.pack(fill="both", expand=True, padx=8, pady=4)
@@ -578,14 +699,17 @@ class ThreatConfigDialog(tk.Toplevel):
                 row = tk.Frame(card, bg=BG_CARD); row.pack(fill="x", pady=3)
                 tk.Label(row, text="Telegram — приближение:", bg=BG_CARD, fg=TEXT_MAIN).pack(side="left")
                 values["approaches"] = {}
-                for key, label in APPROACHES.items():
+                for index, (key, label) in enumerate(APPROACHES.items()):
+                    if index % 3 == 0:
+                        options_row = tk.Frame(card, bg=BG_CARD)
+                        options_row.pack(fill="x", pady=2)
                     var = tk.BooleanVar(value=key in rule.approaches)
                     values["approaches"][key] = var
-                    ttk.Checkbutton(row, text=label, variable=var).pack(side="left", padx=5)
+                    ttk.Checkbutton(options_row, text=label, variable=var).pack(side="left", padx=5)
                 values["groups"] = {}
                 if rule.threat_type == "drone":
                     row = tk.Frame(card, bg=BG_CARD); row.pack(fill="x", pady=3)
-                    tk.Label(row, text="Группы дронов (0 = неизвестна / API):", bg=BG_CARD, fg=TEXT_MAIN).pack(side="left")
+                    tk.Label(row, text="Telegram — группы дронов (0 = неизвестна):", bg=BG_CARD, fg=TEXT_MAIN).pack(side="left")
                     for group in (0, 1, 2, 3):
                         var = tk.BooleanVar(value=group in rule.drone_groups)
                         values["groups"][group] = var
@@ -595,6 +719,14 @@ class ThreatConfigDialog(tk.Toplevel):
                 values["api_types"] = ttk.Entry(row, width=38)
                 values["api_types"].insert(0, ", ".join(rule.api_types))
                 values["api_types"].pack(side="left", padx=6)
+                if rule.threat_type == "drone":
+                    air_row = tk.Frame(card, bg=BG_CARD)
+                    air_row.pack(fill="x", pady=3)
+                    tk.Label(air_row, text="API air без уточнения — уровни (отдельно от дронов / FPV):",
+                             bg=BG_CARD, fg=TEXT_MAIN).pack(side="left")
+                    values["air_levels"] = ttk.Entry(air_row, width=20)
+                    values["air_levels"].insert(0, ", ".join(map(str, rule.api_levels_by_type.get("air", rule.api_levels))))
+                    values["air_levels"].pack(side="left", padx=6)
                 tk.Label(row, text="Номера уровней (через запятую):", bg=BG_CARD, fg=TEXT_MAIN).pack(side="left")
                 values["api_levels"] = ttk.Entry(row, width=16)
                 values["api_levels"].insert(0, ", ".join(map(str, rule.api_levels)))
@@ -606,6 +738,7 @@ class ThreatConfigDialog(tk.Toplevel):
                 self.rule_inputs[rule.id] = values
         detection = tk.Frame(notebook, bg=BG_MAIN, padx=12, pady=12)
         notebook.add(detection, text="Распознавание приближения")
+        detection = self._scroll_body(detection)
         tk.Label(detection, text="Маркеры — через запятую. Для района дополнительно требуется слово из вкладки Районы.\n"
                  "Упоминание района без маркера не доказывает положение цели. API не сообщает приближение или группу дрона.\n"
                  "Общая воздушная тревога air не определяет тип цели. Если включаете air в правило, это ваше явное соответствие.",
@@ -613,12 +746,12 @@ class ThreatConfigDialog(tk.Toplevel):
         self.approach_entries = {}
         for key, label in APPROACHES.items():
             tk.Label(detection, text=label, bg=BG_MAIN, fg=TEXT_ACCENT).pack(anchor="w", pady=(8, 2))
-            entry = ttk.Entry(detection)
+            entry = DictionaryEditor(detection)
             entry.insert(0, ", ".join(self.config.approach_keywords[key]))
             entry.pack(fill="x")
             self.approach_entries[key] = entry
         tk.Label(detection, text="Типы и номера уровней API копируйте из карточки API в главном окне;\n"
-                 "названия и пояснения загружаются из официального справочника. Пример типов: air, kab-bombs, fight-drones.",
+                 "названия и пояснения загружаются из официального справочника. Пример типов: air, kab-bombs, fight-drones, fpv-drones (FPV).",
                  bg=BG_MAIN, fg=TEXT_MUTED, justify="left").pack(anchor="w", pady=12)
 
     @staticmethod
@@ -642,7 +775,15 @@ class ThreatConfigDialog(tk.Toplevel):
         canvas.configure(yscrollcommand=scrollbar.set)
         body = tk.Frame(canvas, bg=BG_MAIN)
         window = canvas.create_window((0, 0), window=body, anchor="nw")
-        body.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        def body_changed(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            def fit_labels(widget):
+                for child in widget.winfo_children():
+                    if isinstance(child, tk.Label) and int(child.cget('wraplength')) > 0:
+                        child.configure(wraplength=max(160, event.width - 40))
+                    fit_labels(child)
+            fit_labels(body)
+        body.bind("<Configure>", body_changed)
         canvas.bind("<Configure>", lambda e: canvas.itemconfigure(window, width=e.width))
         return body
 
@@ -652,18 +793,35 @@ class ThreatConfigDialog(tk.Toplevel):
         self.tracking_inputs = {}
         start = tk.Frame(book, bg=BG_MAIN, padx=12, pady=12)
         book.add(start, text="Начало атаки / тип цели")
+        start = self._scroll_body(start)
         tk.Label(start, text="Словари задают признаки, а степень опасности выбирается девятью правилами. "
                  "Словарь дронов редактируется во вкладке Группы БпЛА. Маркеры — через запятую.",
                  bg=BG_MAIN, fg=TEXT_MAIN, wraplength=980, justify="left").pack(anchor="w", pady=6)
         for key, label in [("rocket_keywords", "Ракетные признаки"), ("bomb_keywords", "Бомбовые признаки"),
+                           ("generic_target_keywords", "Маркеры цели без определённого типа"),
+                           ("regional_city_direction_keywords", "Подтверждённое направление к городу из пригородной зоны"),
+                           ("confirmed_launch_keywords", "Подтверждённый пуск / сброс — начало новой угрозы"),
+                           ("hold_peak_types", "Удерживать достигнутый уровень при движении: rocket, kab, drone"),
                            ("rocket_launch_keywords", "Носители ракет (учитываются только вместе с пуском/взлётом)")]:
             tk.Label(start, text=label, bg=BG_MAIN, fg=TEXT_ACCENT).pack(anchor="w", pady=(12, 3))
-            entry = ttk.Entry(start)
+            entry = DictionaryEditor(start)
             entry.insert(0, ", ".join(getattr(self.config.tracking, key)))
             entry.pack(fill="x")
             self.tracking_inputs[key] = entry
+        tk.Label(start,text='Тип цели по умолчанию (если нет действующего контекста):',bg=BG_MAIN,fg=TEXT_ACCENT).pack(anchor='w',pady=(12,3))
+        self.var_generic_type=tk.StringVar(value=THREAT_TYPES[self.config.tracking.generic_target_type])
+        ttk.Combobox(start,textvariable=self.var_generic_type,values=[THREAT_TYPES['rocket'],THREAT_TYPES['drone']],state='readonly').pack(anchor='w')
         movement = tk.Frame(book, bg=BG_MAIN, padx=12, pady=12)
         book.add(movement, text="Движение / контекст")
+        movement = self._scroll_body(movement)
+        self.var_generic_city_level=tk.StringVar(value={0:'По обычным правилам',1:'Низкая',2:'Высокая',4:'Критическая'}[self.config.tracking.generic_city_level])
+        level_frame=ttk.Frame(movement);level_frame.pack(anchor="w")
+        ttk.Label(level_frame,text="Уровень отдельной цели на/над городом:").pack(side="left")
+        ttk.Combobox(level_frame,textvariable=self.var_generic_city_level,values=['По обычным правилам','Низкая','Высокая','Критическая'],state="readonly",width=24).pack(side="left")
+        self.var_generic_reply=tk.BooleanVar(value=self.config.tracking.generic_city_requires_reply_context)
+        ttk.Checkbutton(movement,text="Цель на/над городом: тип из контекста только при ответе Telegram",variable=self.var_generic_reply).pack(anchor="w")
+        self.var_urban_drone=tk.BooleanVar(value=self.config.tracking.urban_direction_drone_is_city)
+        ttk.Checkbutton(movement,text='Направление дрона на городской ориентир считать полётом в городе',variable=self.var_urban_drone).pack(anchor='w',pady=4)
         self.var_tracking_enabled = tk.BooleanVar(value=self.config.tracking.enabled)
         ttk.Checkbutton(movement, text="Наследовать тип цели из свежего однозначного сообщения того же канала",
                         variable=self.var_tracking_enabled).pack(anchor="w", pady=4)
@@ -680,7 +838,7 @@ class ThreatConfigDialog(tk.Toplevel):
         ttk.Combobox(movement,textvariable=self.var_movement_action,values=list(self.movement_actions),state="readonly",width=35).pack(anchor="w",pady=6)
         for key,label in [("movement_keywords","Признаки движения"),("uncertain_keywords","Признаки неопределённости"),("continuing_keywords","Признаки продолжения атаки / других целей")]:
             tk.Label(movement,text=label,bg=BG_MAIN,fg=TEXT_ACCENT).pack(anchor="w",pady=(10,3))
-            entry=ttk.Entry(movement); entry.insert(0,", ".join(getattr(self.config.tracking,key)))
+            entry=DictionaryEditor(movement); entry.insert(0,", ".join(getattr(self.config.tracking,key)))
             entry.pack(fill="x"); self.tracking_inputs[key]=entry
         endings=tk.Frame(book,bg=BG_MAIN)
         book.add(endings,text="Окончание угрозы")
@@ -710,7 +868,7 @@ class ThreatConfigDialog(tk.Toplevel):
             tk.Label(row,text=label,bg=BG_CARD,fg=TEXT_MAIN).pack(side="left",padx=4)
             values[key]=ttk.Entry(row,width=7);values[key].insert(0,str(getattr(condition,key)));values[key].pack(side="left")
         tk.Label(card,text="Маркеры (через запятую):",bg=BG_CARD,fg=TEXT_MAIN).pack(anchor="w")
-        values["keywords"]=ttk.Entry(card);values["keywords"].insert(0,", ".join(condition.keywords));values["keywords"].pack(fill="x",pady=3)
+        values["keywords"]=DictionaryEditor(card);values["keywords"].insert(0,", ".join(condition.keywords));values["keywords"].pack(fill="x",pady=3)
         row=tk.Frame(card,bg=BG_CARD);row.pack(fill="x",pady=3)
         tk.Label(row,text="Источники (Telegram, @канал):",bg=BG_CARD,fg=TEXT_MAIN).pack(side="left")
         values["sources"]=ttk.Entry(row,width=45);values["sources"].insert(0,", ".join("Telegram" if v=="telegram:*" else "@"+v.split(":",1)[1] for v in condition.sources));values["sources"].pack(side="left",padx=6)
@@ -726,9 +884,20 @@ class ThreatConfigDialog(tk.Toplevel):
         ttk.Checkbutton(card, text="Региональный отбой: разрешить снятие всех наблюдений своего канала в указанной зоне",
                         variable=values["regional_clear"]).pack(anchor="w", pady=3)
         tk.Label(card,text="Исключения (отрицание падения / ПВО):",bg=BG_CARD,fg=TEXT_MAIN).pack(anchor="w")
-        values["reject_keywords"]=ttk.Entry(card)
+        values["reject_keywords"]=DictionaryEditor(card)
         values["reject_keywords"].insert(0,", ".join(condition.reject_keywords))
         values["reject_keywords"].pack(fill="x",pady=3)
+        values['global_without_location']=tk.BooleanVar(value=condition.global_without_location)
+        ttk.Checkbutton(card,text='Явный общий отбой канала: разрешить снятие без названия города',
+                        variable=values['global_without_location']).pack(anchor='w',pady=3)
+        values['require_context_type']=tk.BooleanVar(value=condition.require_context_type)
+        ttk.Checkbutton(card,text='Применять только к свежему однозначному типу из контекста канала',variable=values['require_context_type']).pack(anchor='w',pady=3)
+        tk.Label(card,text='Дополнительные обязательные маркеры (хотя бы один; пусто — без условия):',bg=BG_CARD,fg=TEXT_MAIN).pack(anchor='w')
+        values['required_keywords']=DictionaryEditor(card)
+        values['required_keywords'].insert(0,', '.join(condition.required_keywords))
+        values['required_keywords'].pack(fill='x',pady=3)
+        values['allow_continuing']=tk.BooleanVar(value=condition.allow_continuing)
+        ttk.Checkbutton(card,text='Разрешить завершение прежней группы при сообщении о новых пусках',variable=values['allow_continuing']).pack(anchor='w',pady=3)
         self.condition_inputs.append(values)
         def remove():
             self.condition_inputs.remove(values)
@@ -736,7 +905,11 @@ class ThreatConfigDialog(tk.Toplevel):
         ttk.Button(card,text="Удалить условие",command=remove).pack(anchor="e")
 
     def _save_heuristics(self):
+        self.config.tracking.generic_target_type=next(k for k in ("rocket","drone") if THREAT_TYPES[k]==self.var_generic_type.get())
         self.config.tracking.enabled=self.var_tracking_enabled.get()
+        self.config.tracking.generic_city_level={'По обычным правилам':0,'Низкая':1,'Высокая':2,'Критическая':4}[self.var_generic_city_level.get()]
+        self.config.tracking.generic_city_requires_reply_context=self.var_generic_reply.get()
+        self.config.tracking.urban_direction_drone_is_city=self.var_urban_drone.get()
         self.config.tracking.movement_action=self.movement_actions[self.var_movement_action.get()]
         for key,entry in self.tracking_inputs.items():
             value=entry.get().strip()
@@ -751,4 +924,8 @@ class ThreatConfigDialog(tk.Toplevel):
                 sources=self._parse_sources(inputs["sources"].get()),
                 threat_types=[k for k,v in inputs["types"].items() if v.get()],
                 allow_without_location=inputs["allow_without_location"].get(),require_confirmed=inputs["require_confirmed"].get(),regional_clear=inputs["regional_clear"].get(),
+                global_without_location=inputs["global_without_location"].get(),
+                require_context_type=inputs["require_context_type"].get(),
+                required_keywords=[k.strip().lower() for k in inputs["required_keywords"].get().split(",") if k.strip()],
+                allow_continuing=inputs["allow_continuing"].get(),
                 reject_keywords=[k.strip().lower() for k in inputs["reject_keywords"].get().split(",") if k.strip()]))

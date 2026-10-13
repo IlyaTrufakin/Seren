@@ -1,0 +1,207 @@
+{
+  "schema_version": 1,
+  "channel": "monitor1654",
+  "cases": [
+    {
+      "at": "2026-10-05T14:41:10+03:00",
+      "expected_level": 1,
+      "expected_levels": {
+        "kab": 1
+      },
+      "split": "validation",
+      "note": "Согласованная регрессия: неизвестное новое положение КАБ не должно сокращать прежнюю тревогу до 60 секунд."
+    },
+    {
+      "message_id": "monitor1654/158266",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Ударний БПЛА на Лісне  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158267",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Далі на Пʼятихатки   ‼️"
+    },
+    {
+      "message_id": "monitor1654/158268",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Над Пʼятихатками  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158274",
+      "expected_levels": {
+        "rocket": 0,
+        "kab": 0,
+        "drone": 0,
+        "unknown": 0
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Відбій для міста  ✅"
+    },
+    {
+      "message_id": "monitor1654/158253",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "КАБ на Приколотне/Великий Бурлук  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158252",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "Авіація заходить на пуски КАБ на Приколотне/Великий Бурлук  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158256",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "КАБ на Ізюм  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158260",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "КАБ на Ізюм  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158279",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "Авіація заходить на пуски КАБ по Великому Бурлуку  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158280",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "КАБ на Великий Бурлук  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158281",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Повторні пуски КАБ на Великий Бурлук  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158283",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Ударний БПЛА на Безруки/Дергачі  ⚠️  \n\nБільше не фіксується"
+    },
+    {
+      "message_id": "monitor1654/158286",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "2 Італмаса на Липці  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158289",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "🔻  1 Італмас на Тишки/Циркуни  ❗️  \n  🔻  1 Італмас на Борщову  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158290",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "🔻  1 Італмас на Циркуни  ❗️  \n  🔻  1 Італмас на Тишки  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158298",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед на Гути  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158316",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед на Гути  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158328",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Італмас на Питомник/Руську Лозову  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158334",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "+ Ударний на Черкаську Лозову  ⚠️  \n\nБільше не фіксується"
+    },
+    {
+      "message_id": "monitor1654/158345",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Італмас на Черкаську Лозову  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158363",
+      "expected_levels": {
+        "kab": 2
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "КАБ перетинає кордон на Веселе  ❗️"
+    }
+  ]
+}

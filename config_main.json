@@ -1,0 +1,383 @@
+{
+  "schema_version": 1,
+  "air_classification_version": 4,
+  "enabled": true,
+  "city_name": "Харьков",
+  "alarmmap_enabled": true,
+  "alarmmap_key_file": "API/alarmmap.online.txt",
+  "alarmmap_katottg": "UA63120270000028556",
+  "alarmmap_poll_interval_s": 15,
+  "api_stale_seconds": 60,
+  "rocket_message_ttl_s": 600,
+  "rocket_messages_global": false,
+  "auto_transfer_to_plc": true,
+  "alarm_rules": [
+    {
+      "id": "critical_rocket",
+      "severity": "critical",
+      "threat_type": "rocket",
+      "enabled": true,
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "air": [
+          3
+        ]
+      },
+      "sound": {
+        "code": 1,
+        "name": "Критическая — Ракетная",
+        "beep_count": 2,
+        "beep_duration_ms": 50,
+        "pause_between_ms": 400,
+        "interval_series_ms": 4000,
+        "total_duration_s": 0
+      },
+      "level_code": 4,
+      "general_api_levels": null
+    },
+    {
+      "id": "critical_kab",
+      "severity": "critical",
+      "threat_type": "kab",
+      "enabled": true,
+      "api_types": [
+        "kab-bombs"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "kab-bombs": [
+          2
+        ]
+      },
+      "sound": {
+        "code": 2,
+        "name": "Критическая — Бомбовая",
+        "beep_count": 3,
+        "beep_duration_ms": 50,
+        "pause_between_ms": 400,
+        "interval_series_ms": 4000,
+        "total_duration_s": 0
+      },
+      "level_code": 4,
+      "general_api_levels": [
+        3
+      ]
+    },
+    {
+      "id": "critical_drone",
+      "severity": "critical",
+      "threat_type": "drone",
+      "enabled": true,
+      "api_types": [
+        "fight-drones"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "fight-drones": [
+          2
+        ]
+      },
+      "sound": {
+        "code": 3,
+        "name": "Критическая — Дроновая",
+        "beep_count": 4,
+        "beep_duration_ms": 50,
+        "pause_between_ms": 400,
+        "interval_series_ms": 4000,
+        "total_duration_s": 0
+      },
+      "level_code": 4,
+      "general_api_levels": [
+        3
+      ]
+    },
+    {
+      "id": "critical_unknown",
+      "severity": "critical",
+      "threat_type": "unknown",
+      "enabled": true,
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "air": [
+          3
+        ]
+      },
+      "sound": {
+        "code": 4,
+        "name": "Критическая — Неопознанная",
+        "beep_count": 1,
+        "beep_duration_ms": 50,
+        "pause_between_ms": 400,
+        "interval_series_ms": 4000,
+        "total_duration_s": 0
+      },
+      "level_code": 4,
+      "general_api_levels": null
+    },
+    {
+      "id": "high_rocket",
+      "severity": "high",
+      "threat_type": "rocket",
+      "enabled": true,
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "air": [
+          3
+        ]
+      },
+      "sound": {
+        "code": 5,
+        "name": "Высокая — Ракетная",
+        "beep_count": 2,
+        "beep_duration_ms": 10,
+        "pause_between_ms": 400,
+        "interval_series_ms": 15000,
+        "total_duration_s": 0
+      },
+      "level_code": 2,
+      "general_api_levels": null
+    },
+    {
+      "id": "high_kab",
+      "severity": "high",
+      "threat_type": "kab",
+      "enabled": true,
+      "api_types": [
+        "kab-bombs"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "kab-bombs": [
+          2
+        ]
+      },
+      "sound": {
+        "code": 6,
+        "name": "Высокая — Бомбовая",
+        "beep_count": 3,
+        "beep_duration_ms": 10,
+        "pause_between_ms": 400,
+        "interval_series_ms": 15000,
+        "total_duration_s": 0
+      },
+      "level_code": 2,
+      "general_api_levels": [
+        2
+      ]
+    },
+    {
+      "id": "high_drone",
+      "severity": "high",
+      "threat_type": "drone",
+      "enabled": true,
+      "api_types": [
+        "fight-drones"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "fight-drones": [
+          2
+        ]
+      },
+      "sound": {
+        "code": 7,
+        "name": "Высокая — Дроновая",
+        "beep_count": 4,
+        "beep_duration_ms": 10,
+        "pause_between_ms": 500,
+        "interval_series_ms": 15000,
+        "total_duration_s": 0
+      },
+      "level_code": 2,
+      "general_api_levels": [
+        2
+      ]
+    },
+    {
+      "id": "high_unknown",
+      "severity": "high",
+      "threat_type": "unknown",
+      "enabled": true,
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "air": [
+          3
+        ]
+      },
+      "sound": {
+        "code": 8,
+        "name": "Высокая — Неопознанная",
+        "beep_count": 2,
+        "beep_duration_ms": 10,
+        "pause_between_ms": 400,
+        "interval_series_ms": 15000,
+        "total_duration_s": 0
+      },
+      "level_code": 2,
+      "general_api_levels": null
+    },
+    {
+      "id": "low_rocket",
+      "severity": "low",
+      "threat_type": "rocket",
+      "enabled": true,
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "air": [
+          2
+        ]
+      },
+      "sound": {
+        "code": 9,
+        "name": "Низкая — Ракетная",
+        "beep_count": 1,
+        "beep_duration_ms": 10,
+        "pause_between_ms": 500,
+        "interval_series_ms": 20000,
+        "total_duration_s": 0
+      },
+      "level_code": 1,
+      "general_api_levels": null
+    },
+    {
+      "id": "low_kab",
+      "severity": "low",
+      "threat_type": "kab",
+      "enabled": true,
+      "api_types": [
+        "kab-bombs"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "kab-bombs": [
+          1
+        ]
+      },
+      "sound": {
+        "code": 10,
+        "name": "Низкая — Бомбовая",
+        "beep_count": 1,
+        "beep_duration_ms": 10,
+        "pause_between_ms": 500,
+        "interval_series_ms": 20000,
+        "total_duration_s": 0
+      },
+      "level_code": 1,
+      "general_api_levels": [
+        2
+      ]
+    },
+    {
+      "id": "low_drone",
+      "severity": "low",
+      "threat_type": "drone",
+      "enabled": true,
+      "api_types": [
+        "fight-drones"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "fight-drones": [
+          1
+        ]
+      },
+      "sound": {
+        "code": 11,
+        "name": "Низкая — Дроновая",
+        "beep_count": 1,
+        "beep_duration_ms": 10,
+        "pause_between_ms": 500,
+        "interval_series_ms": 60000,
+        "total_duration_s": 0
+      },
+      "level_code": 1,
+      "general_api_levels": [
+        2
+      ]
+    },
+    {
+      "id": "low_unknown",
+      "severity": "low",
+      "threat_type": "unknown",
+      "enabled": true,
+      "api_types": [
+        "air"
+      ],
+      "api_levels": [],
+      "api_levels_by_type": {
+        "air": [
+          2
+        ]
+      },
+      "sound": {
+        "code": 12,
+        "name": "Низкая — Неопознанная",
+        "beep_count": 1,
+        "beep_duration_ms": 10,
+        "pause_between_ms": 500,
+        "interval_series_ms": 60000,
+        "total_duration_s": 0
+      },
+      "level_code": 1,
+      "general_api_levels": null
+    }
+  ],
+  "safe_sound": {
+    "code": 0,
+    "name": "Норма (Heartbeat)",
+    "beep_count": 1,
+    "beep_duration_ms": 10,
+    "pause_between_ms": 300,
+    "interval_series_ms": 60000,
+    "total_duration_s": 0
+  },
+  "no_link_sound": {
+    "code": 13,
+    "name": "Нет связи с онлайн-источниками",
+    "beep_count": 1,
+    "beep_duration_ms": 10,
+    "pause_between_ms": 400,
+    "interval_series_ms": 10000,
+    "total_duration_s": 0
+  },
+  "bit_mapping": {
+    "bit_safe": 0,
+    "bit_threat_minimal": 1,
+    "bit_threat_city_potential": 2,
+    "bit_threat_district_potential": 3,
+    "bit_threat_city_critical": 4,
+    "bit_threat_district_critical": 5,
+    "bit_type_rocket": 6,
+    "bit_type_kab": 7,
+    "bit_type_drone": 8,
+    "bit_no_link": 9,
+    "bit_muted_by_schedule": 10,
+    "bit_type_unknown": 11,
+    "bit_heartbeat": 15
+  },
+  "plc_feedback": {
+    "bit_plc_running": 15,
+    "bit_alarm_reset": 1,
+    "bit_analysis_switch": 2
+  },
+  "schedule": {
+    "enabled": true,
+    "start_time": "23:40",
+    "end_time": "06:00"
+  }
+}

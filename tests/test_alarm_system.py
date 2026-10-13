@@ -122,10 +122,10 @@ class AlarmTests(unittest.TestCase):
         self.e._refresh()
         self.assertEqual(self.e.status.active_rule_id, '')
         self.assertIn('Официальное название', self.e.status.alarmmap_full_text)
-        rule = next(r for r in self.cfg.alarm_rules if r.id == 'high_rocket')
+        rule = next(r for r in self.cfg.alarm_rules if r.id == 'high_drone')
         rule.api_types, rule.api_levels = ['air'], [2]
         self.e._refresh()
-        self.assertEqual(self.e.status.active_rule_id, 'high_rocket')
+        self.assertEqual(self.e.status.active_rule_id, 'high_drone')
         self.assertIn('AlarmMap API', self.e.status.reason)
         self.assertIn('air/2', self.e.status.reason)
         self.e._api_last_success -= 86400
@@ -133,7 +133,7 @@ class AlarmTests(unittest.TestCase):
         self.assertEqual(self.e.status.active_rule_id, '')
         self.assertIn('УСТАРЕВШИЕ', self.e.status.alarmmap_full_text)
 
-    def test_unknown_api_level_not_fabricated_and_drone_group_unknown(self):
+    def test_unknown_api_level_not_fabricated_and_telegram_group_ignored(self):
         self.cfg.alarmmap_enabled = True
         self.e._api_last_success = time.time()
         self.e._alarmmap_online = True
@@ -142,10 +142,8 @@ class AlarmTests(unittest.TestCase):
         rule.api_levels = [12]
         rule.drone_groups = [1]
         self.e._refresh()
-        self.assertEqual(self.e.status.active_rule_id, '')
-        rule.drone_groups.append(0)
-        self.e._refresh()
         self.assertEqual(self.e.status.active_rule_id, 'critical_drone')
+        self.assertEqual(self.e.status.drone_group, 0)
         self.assertIn('справочник ещё не получен', self.e.status.alarmmap_full_text)
 
     def test_mute_and_plc_switch(self):
@@ -391,6 +389,9 @@ class ModbusTests(unittest.TestCase):
         self.client.write_register.assert_not_called()
 
     def test_auto_reconnect_false_after_io_failure(self):
+        # Dispose earlier Tk test cycles on their owning GUI thread before starting a worker.
+        import gc
+        gc.collect()
         self.worker.config.auto_reconnect = False
         self.client.connect.return_value = True
         self.client.read_holding_registers.side_effect = IOError('offline')
@@ -409,6 +410,23 @@ class ReaderTests(unittest.TestCase):
         messages = TelegramWebReader.parse_messages(html, 'alpha')
         self.assertEqual([m['id'] for m in messages], ['alpha/2', 'alpha/3'])
         self.assertNotEqual(messages[0]['timestamp'], messages[1]['timestamp'])
+
+    def test_reply_quote_does_not_replace_actual_post_body(self):
+        raw = '''<div class="tgme_widget_message_wrap"><div data-post="monitor1654/158367">
+        <a class="tgme_widget_message_reply user-color-default" href="https://t.me/monitor1654/158366">
+        <div class="tgme_widget_message_text js-message_reply_text">4 КАБа над містом</div></a>
+        <div class="tgme_widget_message_text js-message_text">Над Північною Салтівкою<br>❗️</div>
+        <time datetime="2026-10-05T11:43:42+00:00"></time></div></div>'''
+        messages = TelegramWebReader.parse_messages(raw, 'monitor1654')
+        self.assertEqual(len(messages), 1)
+        self.assertEqual(messages[0]['id'], 'monitor1654/158367')
+        self.assertEqual(messages[0]['text'], 'Над Північною Салтівкою\n❗️')
+
+    def test_textless_reply_does_not_become_quoted_threat(self):
+        raw = '''<div class="tgme_widget_message_wrap"><div data-post="alpha/1">
+        <a class="tgme_widget_message_reply"><div class="tgme_widget_message_text js-message_reply_text">ракета над містом</div></a>
+        <time datetime="2026-10-05T11:43:42+00:00"></time></div></div>'''
+        self.assertEqual(TelegramWebReader.parse_messages(raw, 'alpha'), [])
 
     def test_repeated_text_with_new_id_is_not_lost(self):
         seen = []

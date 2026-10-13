@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "level_scale": "four-states-v1",
+  "channel": "radar_kharkov",
+  "cases": [
+    {
+      "message_id": "radar_kharkov/64160",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "покинул город",
+      "split": "tuning",
+      "reference_text": "Реактивный Шахед покинул приделы Харькова, но не покидайте укрытие, ранее уже было такое, будет крутится и искать цель."
+    },
+    {
+      "message_id": "radar_kharkov/64181",
+      "expected_levels": {
+        "kab": 1
+      },
+      "note": "пуск каб",
+      "split": "tuning",
+      "reference_text": "Второй сброс КАБ на Веселое"
+    },
+    {
+      "message_id": "radar_kharkov/64182",
+      "expected_levels": {
+        "kab": 2
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "КАБ летит ближе к Проходам"
+    },
+    {
+      "message_id": "radar_kharkov/64168",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Шахед берет курс на Люботин\n\n+ Ударный БпЛА на Алексеевку. - Лесопарк"
+    },
+    {
+      "message_id": "radar_kharkov/64178",
+      "expected_levels": {
+        "kab": 4
+      },
+      "note": "направление на город (приближение)",
+      "split": "tuning",
+      "reference_text": "КАБ курс на Русскую Лозовую"
+    },
+    {
+      "message_id": "radar_kharkov/64189",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Еще ракета на Харьков"
+    }
+  ]
+}

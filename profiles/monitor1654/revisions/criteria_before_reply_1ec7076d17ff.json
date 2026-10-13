@@ -1,0 +1,1064 @@
+{
+  "schema_version": 1,
+  "level_scale": "four-states-v1",
+  "channel": "monitor1654",
+  "cases": [
+    {
+      "at": "2026-10-05T14:41:10+03:00",
+      "expected_level": 2,
+      "expected_levels": {
+        "kab": 2
+      },
+      "split": "validation",
+      "note": "По уточнению пользователя: после сообщения 14:40:10 КАБ продолжает движение к городу, уровень 2 сохраняется."
+    },
+    {
+      "message_id": "monitor1654/158266",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Ударний БПЛА на Лісне  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158267",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Далі на Пʼятихатки   ‼️"
+    },
+    {
+      "message_id": "monitor1654/158268",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Над Пʼятихатками  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158274",
+      "expected_levels": {
+        "rocket": 0,
+        "kab": 0,
+        "drone": 0,
+        "unknown": 0
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Відбій для міста  ✅"
+    },
+    {
+      "message_id": "monitor1654/158252",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "Авіація заходить на пуски КАБ на Приколотне/Великий Бурлук  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158256",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "КАБ на Ізюм  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158260",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "КАБ на Ізюм  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158279",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "Авіація заходить на пуски КАБ по Великому Бурлуку  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158280",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "КАБ на Великий Бурлук  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158281",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Повторні пуски КАБ на Великий Бурлук  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158283",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Ударний БПЛА на Безруки/Дергачі  ⚠️  \n\nБільше не фіксується"
+    },
+    {
+      "message_id": "monitor1654/158286",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "2 Італмаса на Липці  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158289",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "🔻  1 Італмас на Тишки/Циркуни  ❗️  \n  🔻  1 Італмас на Борщову  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158290",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "🔻  1 Італмас на Циркуни  ❗️  \n  🔻  1 Італмас на Тишки  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158298",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед на Гути  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158316",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед на Гути  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158328",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Італмас на Питомник/Руську Лозову  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158334",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "+ Ударний на Черкаську Лозову  ⚠️  \n\nБільше не фіксується"
+    },
+    {
+      "message_id": "monitor1654/158345",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Італмас на Черкаську Лозову  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158363",
+      "expected_levels": {
+        "kab": 2
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "КАБ перетинає кордон на Веселе  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158242",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Шахед на Тернову  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158253",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "КАБ на Приколотне/Великий Бурлук  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158299",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Ударний БПЛА на Руську Лозову  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158301",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Ударний БПЛА на Лісне  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158309",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Ударний на Дергачі  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158358",
+      "expected_levels": {
+        "kab": 1
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "КАБ на Вовчанський район  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158364",
+      "expected_levels": {
+        "kab": 2
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "КАБ продовжує рух на Тишки  ‼️  \n\n Є загроза для міста   ‼️"
+    },
+    {
+      "message_id": "monitor1654/158370",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "отбой",
+      "split": "tuning",
+      "reference_text": "Відбій загрози  ✅"
+    },
+    {
+      "message_id": "monitor1654/158374",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Ударний на Дергачі  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158410",
+      "expected_levels": {
+        "kab": 2
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Щонайменше 2 КАБи перетинають кордон в напрямку Козачої Лопані  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158411",
+      "expected_levels": {
+        "kab": 2
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Далі на Дементіївку  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158416",
+      "expected_levels": {
+        "kab": 2
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Щонайменше 2 КАБи перетинають кордон в напрямку Козачої Лопані  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158422",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "далеко от города",
+      "split": "tuning",
+      "reference_text": "Авіація заходить на пуски КАБ на Приколотне/Великий Бурлук  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158436",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Далі на П'ятихатки  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158454",
+      "expected_levels": {
+        "rocket": 0
+      },
+      "note": "информационный мусор",
+      "split": "tuning",
+      "reference_text": "monitor 1654 | Харків   pinned «   ‼️  Маємо ознаки підготовки масового ракетного удару по території України в ніч на 6 жовтня.  Уважно слідкуйте за нашими повідомленнями та реагуйте на сигнали повітряної тривоги!   🚨   »"
+    },
+    {
+      "message_id": "monitor1654/158365",
+      "expected_levels": {
+        "kab": 4
+      },
+      "note": "прямая угроза городу",
+      "split": "tuning",
+      "reference_text": "4 КАБа на місто   ‼️"
+    },
+    {
+      "message_id": "monitor1654/158250",
+      "expected_levels": {
+        "kab": 1
+      },
+      "note": "пуска еще не было",
+      "split": "tuning",
+      "reference_text": "Загроза пусків КАБ в напрямку Козачої Лопані  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157980",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "далі курс на просп. Перемоги  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157991",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "на просп. Перемоги  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158031",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "направление на город; По прямому подтверждению пользователя: новые ракетные тип/уровни применены к старой разметке.",
+      "split": "tuning",
+      "reference_text": "Швидкісна на місто   ‼️"
+    },
+    {
+      "message_id": "monitor1654/158037",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "направление на город; По прямому подтверждению пользователя: новые ракетные тип/уровни применены к старой разметке.",
+      "split": "tuning",
+      "reference_text": "Швидкісна на місто   ‼️"
+    },
+    {
+      "message_id": "monitor1654/158039",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "направление на город; По прямому подтверждению пользователя: новые ракетные тип/уровни применены к старой разметке.",
+      "split": "tuning",
+      "reference_text": "на МІСТО  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158041",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "направление на город; По прямому подтверждению пользователя: новые ракетные тип/уровни применены к старой разметке.",
+      "split": "tuning",
+      "reference_text": "Швидкісна на місто   ‼️"
+    },
+    {
+      "message_id": "monitor1654/158044",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "направление на город; По прямому подтверждению пользователя: новые ракетные тип/уровни применены к старой разметке.",
+      "split": "tuning",
+      "reference_text": "Швидкісна на місто   ‼️"
+    },
+    {
+      "message_id": "monitor1654/158120",
+      "expected_levels": {
+        "kab": 1
+      },
+      "note": "направление на пригород",
+      "split": "tuning",
+      "reference_text": "КАБ на Козачу Лопань  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158127",
+      "expected_levels": {
+        "kab": 1
+      },
+      "note": "направление на пригород",
+      "split": "tuning",
+      "reference_text": "КАБ на Козачу Лопань  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158188",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "еще нет пусков",
+      "split": "tuning",
+      "reference_text": "Заходять на пуски КАБ по Козачій Лопані  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/158189",
+      "expected_levels": {
+        "kab": 1
+      },
+      "note": "направление на пригород",
+      "split": "tuning",
+      "reference_text": "КАБ на Козачу Лопань  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158193",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "еще нет пусков",
+      "split": "tuning",
+      "reference_text": "Авіація заходить на пуски КАБ на Приколотне/Великий Бурлук  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158225",
+      "expected_levels": {
+        "rocket": 1
+      },
+      "note": "направление на пригород; По исправлению пользователя: Бандероль и её продолжения — ракетная быстрая цель, не дрон.",
+      "split": "tuning",
+      "reference_text": "ДАЛІ НА РОГАНЬ  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158226",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "угроза городу; По исправлению пользователя: Бандероль и её продолжения — ракетная быстрая цель, не дрон.; По прямому подтверждению пользователя: новые ракетные тип/уровни применены к старой разметке.",
+      "split": "tuning",
+      "reference_text": "Місто перебувайте в укриттях  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158228",
+      "expected_levels": {
+        "rocket": 1
+      },
+      "note": "направление на пригород; По исправлению пользователя: Бандероль и её продолжения — ракетная быстрая цель, не дрон.",
+      "split": "tuning",
+      "reference_text": "Бандероль на Рогань  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158229",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "движение над городом; По исправлению пользователя: Бандероль и её продолжения — ракетная быстрая цель, не дрон.",
+      "split": "tuning",
+      "reference_text": "Далі на Індустріальний р-н  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158335",
+      "expected_levels": {
+        "rocket": 0
+      },
+      "note": "старый салтов - это далеко от города, в тоже время салтов, северная салтовка и салтовка - это городские районы",
+      "split": "tuning",
+      "reference_text": "Швидкісна на Старий Салтів  ❗️"
+    },
+    {
+      "message_id": "monitor1654/158381",
+      "expected_levels": {
+        "rocket": 0
+      },
+      "note": "тут скорее всего имеется ввиду город чугуев,",
+      "split": "tuning",
+      "reference_text": "Місто переходьте в укриття  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158409",
+      "expected_levels": {
+        "kab": 1
+      },
+      "note": "расстояние еще не критично",
+      "split": "tuning",
+      "reference_text": "КАБ в напрямку Козачої Лопані  ‼️"
+    },
+    {
+      "message_id": "monitor1654/158413",
+      "expected_levels": {
+        "kab": 1
+      },
+      "note": "расстояние еще большое до города",
+      "split": "tuning",
+      "reference_text": "КАБ в напрямку Козачої Лопані  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157226",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "приближается к городу",
+      "split": "tuning",
+      "reference_text": "НА МІСТО  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157227",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "над городом",
+      "split": "tuning",
+      "reference_text": "Далі на Саржин Яр  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157228",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "над городом",
+      "split": "tuning",
+      "reference_text": "Далі на ст.м.Заводська  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157229",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "над городом",
+      "split": "tuning",
+      "reference_text": "Далі на Епіцентр  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157242",
+      "expected_levels": {
+        "kab": 0
+      },
+      "note": "бомбы упали",
+      "split": "tuning",
+      "reference_text": "Не фіксуються  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/157244",
+      "expected_levels": {
+        "kab": 0,
+        "rocket": 1
+      },
+      "note": "не указано что цель бомбы, поэтому принимаем по умолчанию дроновую опасность (если на данный момент не было пусков каб или сообщений об их продвижении); По прямому подтверждению пользователя: новые ракетные тип/уровни применены к старой разметке.",
+      "split": "tuning",
+      "reference_text": "Ціль на Дергачі  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157273",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Далі на Дергачі  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157274",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "над городом",
+      "split": "tuning",
+      "reference_text": "Далі на Польову  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157336",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "над городом",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед продовжує рух на Вокзал  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157335",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "над городом",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед продовжує рух на Залютине  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157334",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "над городом",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед продовжує рух на Шевченківський район  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157337",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "над городом",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед продовжує рух на Москалівку  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157338",
+      "expected_levels": {
+        "drone": 4
+      },
+      "note": "угроза граничному/соседнему району города",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед продовжує рух на Основу  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157353",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "приближение к защищаемому району города",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед на Хроли/Індустріальний район  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157354",
+      "expected_levels": {
+        "drone": 4
+      },
+      "note": "приближение к району города",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед на Масельського  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157355",
+      "expected_levels": {
+        "drone": 4
+      },
+      "note": "над районом города",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед на Турбоатом  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157356",
+      "expected_levels": {
+        "drone": 4
+      },
+      "note": "ближайший раойн города",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед на Основу  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157357",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "улетел из города",
+      "split": "tuning",
+      "reference_text": "Реактивний Шахед вилетів з міста на Південне/Люботин  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157376",
+      "expected_levels": {
+        "drone": 4
+      },
+      "note": "направление на район города",
+      "split": "tuning",
+      "reference_text": "Ударний БПЛА на Немишлю  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/157377",
+      "expected_levels": {
+        "drone": 4
+      },
+      "note": "направление на район города",
+      "split": "tuning",
+      "reference_text": "Ударний БПЛА на Турбоатом  ⚠️"
+    },
+    {
+      "message_id": "monitor1654/157393",
+      "expected_levels": {
+        "drone": 4
+      },
+      "note": "на район города",
+      "split": "tuning",
+      "reference_text": "🔻  1 на Нові Будинки  ❗️  \n  🔻  1 на Індустріальну  ❗️"
+    },
+    {
+      "message_id": "monitor1654/157401",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "направление на город",
+      "split": "tuning",
+      "reference_text": "Далі на Високий  ⚠️  \n\nБільше не фіксується"
+    },
+    {
+      "message_id": "monitor1654/157456",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "движение по городу",
+      "split": "tuning",
+      "reference_text": "Продовжує рух на Сокільники  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157488",
+      "expected_levels": {
+        "drone": 0
+      },
+      "note": "угроза уничтожена (относится только к дронам)",
+      "split": "tuning",
+      "reference_text": "Збиття в небі  🫡"
+    },
+    {
+      "message_id": "monitor1654/157502",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "движение на город",
+      "split": "tuning",
+      "reference_text": "БПЛА невизначеного типу знову фіксується курсом на Лісне  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157504",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "приближается к городу",
+      "split": "tuning",
+      "reference_text": "Продовжує рух на Харківську Швейцарію/селище Жуковського  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157573",
+      "expected_levels": {
+        "kab": 4
+      },
+      "note": "указана угроза каб на город",
+      "split": "tuning",
+      "reference_text": "Є ЗАГРОЗА ДЛЯ МІСТА  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157575",
+      "expected_levels": {
+        "kab": 4
+      },
+      "note": "каб над городом",
+      "split": "tuning",
+      "reference_text": "Далі на Північну Салтівку  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157576",
+      "expected_levels": {
+        "kab": 4
+      },
+      "note": "направление каб на район города",
+      "split": "tuning",
+      "reference_text": "Продовжують рух на Немишлю  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157637",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "фпв в данной конфигурации не является угрозой цеху, и далеко от района города",
+      "split": "tuning",
+      "reference_text": "ФПВ над Великою Данилівкою  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157645",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "далеко от района города, угроза медленная, опасно только при обнаружении в охраняемом районе города",
+      "split": "tuning",
+      "reference_text": "Ще 1 ФПВ курсом на Велику Данилівку  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157665",
+      "expected_levels": {
+        "drone": 0
+      },
+      "note": "цель уничтожена (только для дронов)",
+      "split": "tuning",
+      "reference_text": "Збиття в небі  💥"
+    },
+    {
+      "message_id": "monitor1654/157678",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "далеко от района",
+      "split": "tuning",
+      "reference_text": "Ймовірно FPV над Циркунами  ⚠️    ❗️"
+    },
+    {
+      "message_id": "monitor1654/157774",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "приближается к району города",
+      "split": "tuning",
+      "reference_text": "БПЛА невизначеного типу на Аеропорт  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157776",
+      "expected_levels": {
+        "drone": 2
+      },
+      "note": "приближается к району города",
+      "split": "tuning",
+      "reference_text": "Знов фіксується курсом на Малишева  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157897",
+      "expected_levels": {
+        "drone": 0
+      },
+      "note": "цель збита (только для дронов)",
+      "split": "tuning",
+      "reference_text": "Збиття в небі  💥"
+    },
+    {
+      "message_id": "monitor1654/157913",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "дрон фпв над городом",
+      "split": "tuning",
+      "reference_text": "ймовірно над Бекетова  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157915",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "дрон фпв над городом",
+      "split": "tuning",
+      "reference_text": "FPV курсом на Київський р-н  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157916",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "фпв далеко от охраняемого района города",
+      "split": "tuning",
+      "reference_text": "над кільцевою  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157917",
+      "expected_levels": {
+        "drone": 1
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "курс на Тищенки / Жуковського  ‼️"
+    },
+    {
+      "message_id": "monitor1654/157945",
+      "expected_levels": {
+        "drone": 0
+      },
+      "note": "угроза уничтожена (только для дронов)",
+      "split": "tuning",
+      "reference_text": "Збиття в небі  💥"
+    },
+    {
+      "message_id": "monitor1654/159788",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "если тип цели не указан (не определен ранее) - то рассматриваем как ракетную угрозу, в данном случае на город",
+      "split": "tuning",
+      "reference_text": "Ціль на Олексіївку  ‼️"
+    },
+    {
+      "message_id": "monitor1654/159793",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Ціль на Олексіївку  ‼️"
+    },
+    {
+      "message_id": "monitor1654/159797",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Ракета!!!"
+    },
+    {
+      "message_id": "monitor1654/159798",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Ціль на місто  ‼️"
+    },
+    {
+      "message_id": "monitor1654/159802",
+      "expected_levels": {
+        "rocket": 2
+      },
+      "note": "",
+      "split": "tuning",
+      "reference_text": "Ціль на місто  ‼️"
+    },
+    {
+      "message_id": "monitor1654/159803",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "для ракетной цели",
+      "split": "tuning",
+      "reference_text": "В УКРИТТЯ  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160179",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "ракета над городом",
+      "split": "tuning",
+      "reference_text": "На центр  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160180",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "ракета над городом",
+      "split": "tuning",
+      "reference_text": "На Локомотив  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160178",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "ракета приближается к городу",
+      "split": "tuning",
+      "reference_text": "Ціль на місто  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160183",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "ракета приближается к городу",
+      "split": "tuning",
+      "reference_text": "Ціль на місто  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160184",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "ракетная опасность",
+      "split": "tuning",
+      "reference_text": "Місто перебувайте в укриттях  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160187",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "внезапное выражение \"цель на город\" обычно определяет ракету",
+      "split": "tuning",
+      "reference_text": "Ціль на місто  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160188",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "в контексте определения ракетной опасности",
+      "split": "tuning",
+      "reference_text": "На Малу Данилівку/МІСТО  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160189",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "контектс ракеты",
+      "split": "tuning",
+      "reference_text": "На Локомотив  ❗️"
+    },
+    {
+      "message_id": "monitor1654/160176",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "выражение цель на город, если оно не является обновлением (коментарием) к предыдущим сообщениям - определяет ракетную опасность",
+      "split": "tuning",
+      "reference_text": "Ціль над містом  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160203",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "ракетная опасность",
+      "split": "tuning",
+      "reference_text": "Ціль на місто  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160204",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "продвижение ракетной опасности",
+      "split": "tuning",
+      "reference_text": "На Холодногірський р-н  ‼️"
+    },
+    {
+      "message_id": "monitor1654/160206",
+      "expected_levels": {
+        "rocket": 4
+      },
+      "note": "ракетная опасность",
+      "split": "tuning",
+      "reference_text": "Ціль на місто  ‼️"
+    }
+  ]
+}
